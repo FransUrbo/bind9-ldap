@@ -1,3 +1,5 @@
+For changes for version 1.1.1 and newer, please see the CHANGES file.
+
 This is an attempt at an LDAP back-end for BIND 9 using the new simplified
 database interface "sdb". This is release 1.1.0 and has some new
 experimental features. For production I would recommend using 1.0 unless
