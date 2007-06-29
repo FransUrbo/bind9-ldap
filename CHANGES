@@ -6,6 +6,10 @@ bind9-ldap 1.1.1 TO BE ANNOUNCED
 	    bind{name,pw} variables. I've notice a memory thrashing,
 	    maybe this will help...
 	  - Fix zone2ldap.c:main() to work with later Bind9.
+	  - Update paths in the Makefile (reflect the fact that
+	    the LDAP sdb is in 'contrib/sdb/ldap' and not 'contrib/sdb').
+	  - Fix object class generation (newer OpenLDAP is very picky
+	    about this) in zone2ldap.
 
 	Additions/Misc changes
 	  - Include zone2ldap command
@@ -20,3 +24,14 @@ bind9-ldap 1.1.1 TO BE ANNOUNCED
 	    easier to figure out which zone that it wasn't possible
 	    to bind for).
 	  - Add some debugging to easier see connects/binds etc.
+	  - Add SASL support to zone2ldap and ldap2zone (if compiled with
+	    the -DSECUREBIND_SASL flag).
+	    + Update Makefile and zone2ldap man page with additional
+	      options.
+	  - Add offline support to zone2ldap so that we don't need to
+	    link with LDAP libs etc. Accomplished by using the -DOFFLINE
+	    flag and the -L flag to binary.
+	  - Added StartTLS (-ZZ flag) and LDAP URI support (-L flag) to
+	    zone2ldap.
+	  - Added the possibility to add OpenLDAPaci attribute(s) to
+	    objects created by zone2ldap.

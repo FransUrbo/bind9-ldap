@@ -1,11 +1,29 @@
 /*
  * Copyright (C) 2001 Jeff McNeil <jeff@snapcase.g-rock.net>
+ * Copyright (C) 2004 Turbo Fredriksson <turbo@bayour.com>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  * 
  * Change Log
+ * Thu Nov  4 09:24:31 CET 2004 - Turbo Fredriksson
+ * - Added SASL authentication. Acomplished by stealing
+ *   sasl.c from the OpenLDAP source tree.
+ * - Added full offline support. No linking against any LDAP
+ *   libraries etc. The header 'ldap.h' is still needed though,
+ *   since we're outputing LDIF's.
+ *
+ * Tue Nov  2 09:49:05 CET 2004 - Turbo Fredriksson
+ * - Added StartTLS extended operations
+ * - Added LDAP URI support
+ * - Added OpenLDAPaci attribute(s) additions to objects.
+ * - Adding offline generation of zone object(s).
+ * - Fixing object class generation - newer OpenLDAP is very
+ *   picky about the objects. Only one structural objectclass is
+ *   _required/allowed_. This means that each of the base structure
+ *   objects must have the objectclass 'domain' and the attribute 'dc'
+ *   defined. Remove the 'top' objectclass. Redundant.
  *
  * Tue May  1 19:19:54 EDT 2001 - Jeff McNeil
  * Update to objectClass code, and add_to_rr_list function
@@ -20,8 +38,6 @@
 #include <getopt.h>
 
 #include <isc/buffer.h>
-#include <isc/entropy.h>
-#include <isc/hash.h>
 #include <isc/mem.h>
 #include <isc/print.h>
 #include <isc/result.h>
@@ -41,7 +57,7 @@
 #define DNS_OBJECT 6
 #define DNS_TOP	   2
 
-#define VERSION    "0.4-ALPHA"
+#define VERSION    "0.4-ALPHA/TF.3"
 
 #define NO_SPEC 0 
 #define WI_SPEC  1
@@ -64,11 +80,16 @@ void usage ();
 /* Add to the ldap dit */
 void add_ldap_values (ldap_info * ldinfo);
 
+/* Add the OpenLDAPACI attribute(s). */
+LDAPMod *add_aci_values ();
+
+#ifndef OFFLINE
 /* Init an ldap connection */
 void init_ldap_conn ();
 
 /* Ldap error checking */
 void ldap_result_check (char *msg, char *dn, int err);
+#endif
 
 /* Put a hostname into a char ** array */
 char **hostname_to_dn_list (char *hostname, char *zone, unsigned int flags);
@@ -93,12 +114,41 @@ void generate_ldap (dns_name_t * dnsname, dns_rdata_t * rdata,
 /* head pointer to the list */
 ldap_info *ldap_info_base = NULL;
 
-char *argzone, *ldapbase, *binddn, *bindpw = NULL;
-char *ldapsystem = "localhost";
-static char *objectClasses[] =
-  { "top", "dNSZone", NULL };
-static char *topObjectClasses[] = { "top", NULL };
+/* Wrapper for add or LDIF generation */
+void do_ldap_add (LDAP *ld, char *dn, LDAPMod *attrs[]);
+
+/* Output as LDIF instead of writing to LDAP server */
+void output_ldif (char *dn, LDAPMod *attrs[]);
+
+char *argzone, *ldapbase, *binddn[256];
+#ifndef OFFLINE
+char *bindpw = NULL, *ldapsystem = NULL;
+int use_uri = 0, use_ssl = 0, use_tls = 0, use_ldif = 0;
+#else
+int use_ldif = 1;
+#endif
+int use_aci = 0, verbose = 0;
+static char *objectClasses[]    = { "dNSZone", NULL };
+static char *topObjectClasses[] = { "domain",  NULL };
+
+#ifndef OFFLINE
+#if defined(SECUREBIND_SASL)
+#include <slapd/lutil_ldap.h>
+#include <sasl/sasl.h>
+
+unsigned	 sasl_flags	= LDAP_SASL_AUTOMATIC;
+char		*sasl_secprops	= NULL;
+char		*sasl_realm	= NULL;
+char		*sasl_authc_id	= NULL;
+char		*sasl_authz_id	= NULL;
+char		*sasl_mech	= NULL;
+int		 authmethod	= LDAP_AUTH_SASL;
+#endif
+
 LDAP *conn;
+#else
+int		 authmethod	= -1;
+#endif
 unsigned int debug = 0;
 
 #ifdef DEBUG
@@ -108,17 +158,15 @@ debug = 1;
 int
 main (int *argc, char **argv)
 {
-  isc_mem_t *mctx = NULL;
-  isc_entropy_t *ectx = NULL;
+  isc_mem_t *isc_ctx = NULL;
   isc_result_t result;
   char *basedn;
   ldap_info *tmp;
-  LDAPMod *base_attrs[2];
-  LDAPMod base;
+  LDAPMod *base_attrs[4];
   isc_buffer_t buff;
   char *zonefile;
   char fullbasedn[1024];
-  char *ctmp;
+  char *ctmp, *dc = NULL;
   dns_fixedname_t fixedzone, fixedname;
   dns_rdataset_t rdataset;
   char **dc_list;
@@ -132,6 +180,7 @@ main (int *argc, char **argv)
   extern int optind, opterr, optopt;
   int create_base = 0;
   int topt;
+  int binddn_counter = 0;
 
   if ((int) argc < 2)
     {
@@ -139,11 +188,11 @@ main (int *argc, char **argv)
       exit (-1);
     }
 
-  while ((topt = getopt ((int) argc, argv, "D:w:b:z:f:h:?dcv")) != -1)
+  while ((topt = getopt ((int) argc, argv, "D:w:b:z:f:h:H:ZL?dcvoO:QR:U:X:Y:IVx")) != -1)
     {
       switch (topt)
 	{
-	case 'v':
+	case 'V':
 		printf("%s\n", VERSION);
 		exit(0);
 	case 'c':
@@ -153,14 +202,17 @@ main (int *argc, char **argv)
 	  debug++;
 	  break;
 	case 'D':
-	  binddn = strdup (optarg);
+	  binddn[binddn_counter] = strdup (optarg);
+	  binddn_counter++;
 	  break;
+#ifndef OFFLINE
 	case 'w':
 	  bindpw = strdup (optarg);
 	  break;
 	case 'b':
 	  ldapbase = strdup (optarg);
 	  break;
+#endif
 	case 'z':
 	  argzone = strdup (optarg);
 	  // We wipe argzone all to hell when we parse it for the DN */
@@ -169,8 +221,86 @@ main (int *argc, char **argv)
 	case 'f':
 	  zonefile = strdup (optarg);
 	  break;
+#ifndef OFFLINE
 	case 'h':
 	  ldapsystem = strdup (optarg);
+	  break;
+	case 'H':
+	  /* Use LDAP URI to connect to LDAP server. */
+	  ldapsystem = strdup (optarg);
+	  if(!strncasecmp(ldapsystem, "ldaps://", 8))
+	    use_ssl = 1;
+	  else if(!strncasecmp(ldapsystem, "ldapi://", 8) ||
+		  !strncasecmp(ldapsystem, "ldap://",  7))
+	    use_uri = 1;
+	  break;
+#endif
+	case 'o':
+	  /* Include OpenLDAPaci attribute(s) in each object created. */
+	  use_aci = 1;
+	  break;
+#ifndef OFFLINE
+	case 'Z':
+	  /* Issue StartTLS (Transport Layer Security) extended operation. */
+	  if(!use_ssl)
+	    ++use_tls;
+	  else {
+	    fprintf (stderr, "Can't combine both SSL and TLS (ldaps:// specified in 'ldapserver')\n");
+	    exit (-1);
+	  }
+	  break;
+	case 'L':
+	  /* print entries in LDIF format */
+	  use_ldif = 1;
+	  break;
+#if defined(SECUREBIND_SASL)
+	case 'O':
+	  /* SASL security properties */
+	  sasl_secprops = strdup (optarg);
+	  break;
+	case 'R':
+	  /* SASL realm */
+	  sasl_realm = strdup (optarg);
+	  break;
+	case 'U':
+	  /* Username for SASL bind.  The syntax of the username depends
+	   * on the actual SASL mechanism used.
+	   */
+	  sasl_authc_id = strdup (optarg);
+	  break;
+	case 'X':
+	  /* Requested authorization ID for SASL bind. Authzid must be
+	   * one of the following formats:
+	   *   dn:<distinguished name>
+	   * or
+	   *   u:<username>
+	   */
+	  sasl_authz_id = strdup (optarg);
+	  break;
+	case 'Y':
+	  /* the SASL mechanism to be used for authentication. If it's
+	   * not specified, the program will choose the best mechanism
+	   * the server knows.
+	   */
+	  sasl_mech = strdup (optarg);
+	  break;
+
+	case 'Q':
+	  /* SASL Quiet mode */
+	  sasl_flags = LDAP_SASL_QUIET;
+	  break;
+	case 'I':
+	  /* SASL Interactive mode. */
+	  sasl_flags = LDAP_SASL_INTERACTIVE;
+	  break;
+
+	case 'x':
+	  authmethod = -1;
+	  break;
+#endif
+#endif
+	case 'v':
+	  verbose = 1;
 	  break;
 	case '?':
 	default:
@@ -179,23 +309,29 @@ main (int *argc, char **argv)
 	}
     }
 
-  if ((argzone == NULL) || (zonefile == NULL))
+  if ((argzone == NULL) || (zonefile == NULL)
+#ifndef OFFLINE
+      || (ldapbase == NULL)
+#endif
+      )
     {
       usage ();
       exit (-1);
     }
 
+#if defined(SECUREBIND_SASL)
+  if ((authmethod != LDAP_AUTH_SASL) && ((binddn[0] == NULL) || (bindpw == NULL))) {
+    printf ("Doing simple bind, but neither binddn and/or bindpw is supplied.\n");
+    usage ();
+    exit (-1);
+  }
+#endif
+
   if (debug)
     printf ("Initializing ISC Routines, parsing zone file\n");
 
-  result = isc_mem_create (0, 0, &mctx);
+  result = isc_mem_create (0, 0, &isc_ctx);
   isc_result_check (result, "isc_mem_create");
-
-  result = isc_entropy_create(mctx, &ectx);
-  isc_result_check (result, "isc_entropy_create");
-
-  result = isc_hash_create(mctx, ectx, DNS_NAME_MAXWIRE);
-  isc_result_check (result, "isc_hash_create");
 
   isc_buffer_init (&buff, argzone, strlen (argzone));
   isc_buffer_add (&buff, strlen (argzone));
@@ -204,8 +340,13 @@ main (int *argc, char **argv)
   result = dns_name_fromtext (zone, &buff, dns_rootname, ISC_FALSE, NULL);
   isc_result_check (result, "dns_name_fromtext");
 
-  result = dns_db_create (mctx, "rbt", zone, dns_dbtype_zone,
-			  dns_rdataclass_in, 0, NULL, &db);
+  /* It is required to initialize the hash before dns_db_create in BIND 9 */
+  result = isc_hash_create(isc_ctx, NULL, DNS_NAME_MAXWIRE);
+  isc_result_check (result, "isc_hash_create");
+
+  result =
+    dns_db_create (isc_ctx, "rbt", zone, dns_dbtype_zone, dns_rdataclass_in,
+		   0, NULL, &db);
   isc_result_check (result, "dns_db_create");
 
   result = dns_db_load (db, zonefile);
@@ -261,15 +402,15 @@ main (int *argc, char **argv)
 
     }
 
-  /* Initialize the LDAP Connection */
-  if (debug)
-    printf ("Initializing LDAP Connection to %s as %s\n", ldapsystem, binddn);
-
-  init_ldap_conn ();
+#ifndef OFFLINE
+  if (!use_ldif)
+    /* Initialize the LDAP Connection */
+    init_ldap_conn ();
+#endif
 
   if (create_base)
     {
-      if (debug)
+      if (debug || verbose)
 	printf ("Creating base zone DN %s\n", argzone);
 
       dc_list = hostname_to_dn_list (argzone, argzone, DNS_TOP);
@@ -279,12 +420,50 @@ main (int *argc, char **argv)
 	{
 	  if ((*ctmp == ',') || (ctmp == &basedn[0]))
 	    {
-	      base.mod_op = LDAP_MOD_ADD;
-	      base.mod_type = "objectClass";
-	      base.mod_values = topObjectClasses;
-	      base_attrs[0] = &base;
-	      base_attrs[1] = NULL;
+	      /* ------------------ */
+	      /* Object class setup */
+	      base_attrs[0] = (LDAPMod *) malloc (sizeof (LDAPMod));
+	      base_attrs[0]->mod_op = LDAP_MOD_ADD;
+	      base_attrs[0]->mod_type = "objectClass";
+	      base_attrs[0]->mod_values = (char **) calloc (sizeof (char *), 2);
+	      if (base_attrs[0]->mod_values == (char **)NULL) exit(-1);
+	      base_attrs[0]->mod_values = topObjectClasses;
 
+	      /* ------------------ */
+	      /* Domain component setup */
+	      base_attrs[1] = (LDAPMod *) malloc (sizeof (LDAPMod));
+	      base_attrs[1]->mod_op = LDAP_MOD_ADD;
+	      base_attrs[1]->mod_type = "dc";
+	      base_attrs[1]->mod_values = (char **) calloc (sizeof (char *), 2);
+	      if (base_attrs[1]->mod_values == (char **)NULL) exit(-1);
+	      {
+		/* Get the DC value */
+		int i;
+		char *tmp = strdup(ctmp);
+
+		if(*ctmp == ',')
+		  dc = tmp+4;
+		else
+		  dc = tmp+3;
+
+		for(i=0; dc[i]; i++) {
+		  if(dc[i] == ',') {
+		    dc[i] = '\0';
+		    break;
+		  }
+		}
+	      }
+	      base_attrs[1]->mod_values[0] = dc;
+	      base_attrs[1]->mod_values[1] = NULL;
+
+	      /* ------------------ */
+	      if(use_aci) {
+		base_attrs[2] = add_aci_values();
+		base_attrs[3] = NULL;
+	      } else
+		base_attrs[2] = NULL;
+
+	      /* ------------------ */
 	      if (ldapbase)
 		{
 		  if (ctmp != &basedn[0])
@@ -300,8 +479,13 @@ main (int *argc, char **argv)
 		  else
 		    sprintf (fullbasedn, "%s", ctmp);
 		}
-	      result = ldap_add_s (conn, fullbasedn, base_attrs);
-	      ldap_result_check ("intial ldap_add_s", fullbasedn, result);
+
+	      /* ------------------ */
+#ifndef OFFLINE
+	      do_ldap_add (conn, fullbasedn, base_attrs);
+#else
+	      output_ldif (fullbasedn, base_attrs);
+#endif
 	    }
 
 	}
@@ -315,19 +499,18 @@ main (int *argc, char **argv)
   for (tmp = ldap_info_base; tmp != NULL; tmp = tmp->next)
     {
 
-      if (debug)
+      if (debug || verbose)
 	printf ("Adding DN: %s\n", tmp->dn);
 
+#ifndef OFFLINE
       add_ldap_values (tmp);
+#else
+      output_ldif (tmp->dn, tmp->attrs);
+#endif
     }
 
-  if (debug)
+if (debug || verbose)
 	printf("Operation Complete.\n");
-
-  /* Cleanup */
-  isc_hash_destroy();
-  isc_entropy_detach(&ectx);
-  isc_mem_destroy(&mctx);
 
   return 0;
 }
@@ -436,7 +619,9 @@ add_to_rr_list (char *dn, char *name, char *type,
       if (tmp == (ldap_info *) NULL)
 	{
 	  fprintf (stderr, "malloc: %s\n", strerror (errno));
+#ifndef OFFLINE
 	  ldap_unbind_s (conn);
+#endif
 	  exit (-1);
 	}
 
@@ -445,7 +630,9 @@ add_to_rr_list (char *dn, char *name, char *type,
       if (tmp->attrs == (LDAPMod **) NULL)
 	{
 	  fprintf (stderr, "calloc: %s\n", strerror (errno));
+#ifndef OFFLINE
 	  ldap_unbind_s (conn);
+#endif
 	  exit (-1);
 	}
 
@@ -512,7 +699,9 @@ add_to_rr_list (char *dn, char *name, char *type,
       tmp->attrs[4]->mod_values[0] = gbl_zone;
       tmp->attrs[4]->mod_values[1] = NULL;
 
-      tmp->attrs[5] = NULL;
+      tmp->attrs[5] = add_aci_values ();
+
+      tmp->attrs[6] = NULL;
       tmp->attrcnt = flags;
       tmp->next = ldap_info_base;
       ldap_info_base = tmp;
@@ -535,7 +724,9 @@ add_to_rr_list (char *dn, char *name, char *type,
 	      if (tmp->attrs[i]->mod_values == (char **) NULL)
 		{
 		  fprintf (stderr, "realloc: %s\n", strerror (errno));
+#ifndef OFFLINE
 		  ldap_unbind_s (conn);
+#endif
 		  exit (-1);
 		}
 	      for (x = 0; tmp->attrs[i]->mod_values[x] != NULL; x++);
@@ -551,7 +742,9 @@ add_to_rr_list (char *dn, char *name, char *type,
       if (tmp->attrs == NULL)
 	{
 	  fprintf (stderr, "realloc: %s\n", strerror (errno));
+#ifndef OFFLINE
 	  ldap_unbind_s (conn);
+#endif
 	  exit (-1);
 	}
 
@@ -672,21 +865,113 @@ build_dn_from_dc_list (char **dc_list, unsigned int ttl, int flag)
 }
 
 
+#ifndef OFFLINE
 /* Initialize LDAP Conn */
 void
 init_ldap_conn ()
 {
-  int result;
-  conn = ldap_open (ldapsystem, LDAP_PORT);
-  if (conn == NULL)
+  int result, version;
+#if defined(SECUREBIND_SASL)
+  void *defaults;
+  char *id = NULL;
+
+  if (authmethod == LDAP_AUTH_SASL)
+    defaults = lutil_sasl_defaults (conn, sasl_mech, sasl_realm, sasl_authc_id, bindpw, sasl_authz_id);
+#endif
+
+  if(use_tls
+#if defined(SECUREBIND_SASL)
+     || (authmethod == LDAP_AUTH_SASL)
+#endif
+     )
     {
-      fprintf (stderr, "Error opening Ldap connection: %s\n",
-	       strerror (errno));
+      /* Make sure we use LDAPv3 when trying TLS or SASL (a requirenment). */
+      version = LDAP_VERSION3;
+      if(ldap_set_option(conn, LDAP_OPT_PROTOCOL_VERSION, &version) != LDAP_OPT_SUCCESS ) {
+	fprintf (stderr, "Failed setting LDAP version to LDAPv3: %s\n", strerror (errno));
+	exit (-1);
+      }
+    }
+  
+  if (debug) {
+#if defined(SECUREBIND_SASL)
+    if (authmethod == LDAP_AUTH_SASL) {
+      if(sasl_authc_id)
+	id = sasl_authc_id;
+      else if(sasl_authz_id)
+	id = sasl_authz_id;
+
+      printf ("Initializing LDAP Connection to %s as %s@%s\n", ldapsystem, id, sasl_realm);
+    } else
+#endif
+      printf ("Initializing LDAP Connection to %s as %s\n", ldapsystem, binddn[0]);
+
+    /*
+    if (ber_set_option (NULL, LBER_OPT_DEBUG_LEVEL, "-1") != LBER_OPT_SUCCESS)
+      fprintf (stderr, "Could not set LBER_OPT_DEBUG_LEVEL -1\n");
+
+    if (ldap_set_option (NULL, LDAP_OPT_DEBUG_LEVEL, "-1") != LDAP_OPT_SUCCESS)
+      fprintf (stderr, "Could not set LDAP_OPT_DEBUG_LEVEL -1\n");
+    */
+  }
+
+  if (use_uri || use_ssl) {
+    /* Connect to LDAP server using either LDAP URI (ldapi) or SSL (ldaps). */
+    result = ldap_initialize(&conn, ldapsystem);
+    if(result != LDAP_SUCCESS) {
+      fprintf (stderr, "Error with ldap_initialize(): %s\n", strerror (errno));
       exit (-1);
     }
+  } else {
+    conn = ldap_open (ldapsystem, LDAP_PORT);
+    if (conn == NULL)
+      {
+	fprintf (stderr, "Error opening Ldap connection: %s\n",
+		 strerror (errno));
+	exit (-1);
+      }
+  }
 
-  result = ldap_simple_bind_s (conn, binddn, bindpw);
-  ldap_result_check ("ldap_simple_bind_s", "LDAP Bind", result);
+  /* Directly stolen from the ldapsearch.c file in OpenLDAP (v2.0.27) */
+  if (use_tls) {
+    if (debug)
+      printf ("Issuing StartTLS extended operations\n");
+
+    /* Initialize the TLS connection */
+    if(ldap_start_tls_s(conn, NULL, NULL) != LDAP_SUCCESS) {
+      if(use_tls > 1) {
+	fprintf (stderr, "Starting TLS failed: %s\n", strerror (errno));
+	exit (-1);
+      } else
+	ldap_perror(conn, "ldap_start_tls_s");
+    }
+  }
+
+#if defined(SECUREBIND_SASL)
+  if (authmethod == LDAP_AUTH_SASL) {
+    if (sasl_secprops != NULL ) {
+      result = ldap_set_option (conn, LDAP_OPT_X_SASL_SECPROPS, (void *) sasl_secprops );
+      if( result != LDAP_OPT_SUCCESS ) {
+	fprintf (stderr, "Could not set LDAP_OPT_X_SASL_SECPROPS: %s\n", sasl_secprops );
+	exit (-1);
+      }
+    }
+
+    result   = ldap_sasl_interactive_bind_s (conn, binddn[0], sasl_mech, NULL, NULL,
+					     sasl_flags, lutil_sasl_interact, defaults);
+    
+    lutil_sasl_freedefs (defaults);
+    if (result != LDAP_SUCCESS ) {
+      ldap_perror (conn, "ldap_sasl_interactive_bind_s");
+      exit (-1);
+    }
+  } else {
+#endif
+    result = ldap_simple_bind_s (conn, binddn[0], bindpw);
+    ldap_result_check ("ldap_simple_bind_s", "LDAP Bind", result);
+#if defined(SECUREBIND_SASL)
+  }
+#endif
 }
 
 /* Like isc_result_check, only for LDAP */
@@ -703,8 +988,6 @@ ldap_result_check (char *msg, char *dn, int err)
     }
 }
 
-
-
 /* For running the ldap_info run queue. */
 void
 add_ldap_values (ldap_info * ldinfo)
@@ -718,17 +1001,105 @@ add_ldap_values (ldap_info * ldinfo)
   else
     sprintf (dnbuffer, "%s", ldinfo->dn);
 
-  result = ldap_add_s (conn, dnbuffer, ldinfo->attrs);
-  ldap_result_check ("ldap_add_s", dnbuffer, result);
+  do_ldap_add (conn, dnbuffer, ldinfo->attrs);
+}
+#endif
+
+LDAPMod *
+add_aci_values ()
+{
+  LDAPMod *attrs;
+  char tmp[256];
+  int i, aci = 0;
+
+  attrs = (LDAPMod *) malloc (sizeof (LDAPMod));
+  attrs->mod_op = LDAP_MOD_ADD;
+  attrs->mod_type = "OpenLDAPaci";
+
+  attrs->mod_values = (char **) calloc (sizeof (char *), 2);
+  if (attrs->mod_values == (char **)NULL) exit(-1);
+
+  /* First the public parts: objectClass, dc and entry. */
+  sprintf(tmp, "%d#entry#grant;r,s,c;objectClass,dc,[entry]#public#", aci);
+  attrs->mod_values[aci] = strdup (tmp);
+  aci++;
+
+  /* Then add the Bind DN(s). */
+  if(binddn[0]) {
+    for(i=0; binddn[i]; i++, aci++) {
+      sprintf(tmp, "%d#entry#grant;w,r,s,c;[all]#access-id#%s", aci, binddn[i]);
+      attrs->mod_values[aci] = strdup (tmp);
+    }
+  } else {
+    sprintf(tmp, "%d#entry#grant;w,r,s,c;[all]#access-id#%%INSERT_DN_HERE%%", aci);
+    attrs->mod_values[aci] = strdup (tmp);
+    aci++;
+  }
+
+  attrs->mod_values[aci] = NULL;
+  return(attrs);
 }
 
+void
+output_ldif (char *dn, LDAPMod *attrs[])
+{
+  /* Most of this is directly ripped from openldap-2.2.18/clients/tools/ldapsearch.c. */
+  int i, j;
 
+  printf ("dn: %s\n", dn);
+  for (i=0; attrs[i]; i++) {
+    for (j=0; attrs[i]->mod_values[j]; j++) {
+      printf ("%s: %s\n", attrs[i]->mod_type, attrs[i]->mod_values[j]);
+    }
+  }
+  printf ("\n");
+}
 
+#ifndef OFFLINE
+void
+do_ldap_add (LDAP *ld, char *dn, LDAPMod *attrs[])
+{
+  int result;
+
+  if (use_ldif)
+    output_ldif (dn, attrs);
+  else {
+    result = ldap_add_s (ld, dn, attrs);
+    ldap_result_check ("ldap_add_s", dn, result);
+  }
+}
+#endif
 
 /* name says it all */
 void
 usage ()
 {
   fprintf (stderr,
-	   "zone2ldap -D [BIND DN] -w [BIND PASSWORD] -b [BASE DN] -z [ZONE] -f [ZONE FILE] -h [LDAP HOST]
-	   [-c Create LDAP Base structure][-d Debug Output (lots !)] \n ");}
+	   "zone2ldap "
+#ifndef OFFLINE
+#if defined(SECUREBIND_SASL)
+	   "[[-x] "
+#endif
+	   "[-D BIND DN] [-w BIND PASSWORD]"
+#if defined(SECUREBIND_SASL)
+	   "] "
+#else
+	   "[-D Access-ID for ACI] "
+#endif
+#endif
+	   "<-b BASE DN> <-z ZONE> <-f ZONE FILE>\n"
+	   "          "
+#ifndef OFFLINE
+	   "[-h [LDAP HOST]|-H [LDAP URI]]"
+#endif
+	   "[-c Create LDAP Base structure]\n"
+	   "          [[-d Debug Output (lots !)]|[-v]] [-o Add the OpenLDAPaci attribute(s)]\n"
+#ifndef OFFLINE
+	   "          [-Z[Z] Issue StartTLS extended operation] [-L Output LDIF instead of writing to LDAP server]\n"
+#if defined(SECUREBIND_SASL)
+	   "          [-O SASL security properties] [-Q SASL Quiet mode] [-R SASL realm]\n"
+	   "          [-U Username for SASL bind] [-X Authzid for SASL bind] [-Y SASL mechanism]\n"
+#endif
+#endif
+	   );
+}

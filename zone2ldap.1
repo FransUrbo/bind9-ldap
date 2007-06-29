@@ -1,8 +1,11 @@
 .TH zone2ldap 1 "8 March 2001"
 .SH NAME
-zone2ldap /- Load BIND 9 Zone files into LDAP Directory
+zone2ldap - Load BIND 9 Zone files into LDAP Directory
 .SH SYNOPSIS
-zone2ldap  [-D Bind DN] [-w Bind Password] [-b Base DN] [-z Zone] [-f Zone File ] [-h Ldap Host] [-cd] [-v]
+zone2ldap [-D Bind DN] [-w Bind Password] [-b Base DN] [-z Zone] [-f Zone File ]
+          [[-h LDAP Host]|[-H LDAP URI]] [-cdoZL] [-v] [-O SASL security properties]
+          [-Q SASL Quiet mode] [-R SASL realm] [-U Username for SASL bind]
+          [-X Authzid for SASL bind] [-Y SASL mechanism] [-I SASL Interactive]
 .SH DESCRIPTION
 zone2ldap will parse a complete BIND 9 format DNS zone file, and load
 the contents into an LDAP directory, for use with the LDAP sdb back-end.
@@ -12,34 +15,120 @@ partially exists, zone2ldap will attempt to add all/missing zone data.
 
 .SS Options
 .TP
--b 
+.BI \-D \ binddn
+Use the Distinguished Name binddn to bind to the LDAP directory.
+
+If
+.B \-o
+is specified, it is allowed to specify
+.B \-D
+multiple times to be able to add multiple DN's with full access in the ACI attribute. See
+option
+.B \-o
+and section
+.B LDAP ACI
+below.
+.TP
+.BI \-b \ searchbase
 LDAP Base DN. LDAP systems require a "base dn", which is generally considered the LDAP Directory root.
 If the zone you are loading is different from the base, then you will need to tell zone2ldap what your LDAP
 base is. 
 .TP
--v 
+.BI \-v 
 Print version information, and immediatly exit.
 .TP
--f 
+.BI \-f \ file
 Zone file.  Bind 9.1 compatible zone file, from which zone information will be read.
 .TP
--d 
+.BI \-d 
 Dump debug information to standard out. 
 .TP 
--w 
+.BI \-w \ passwd
 LDAP Bind password, corresponding the the value of "-b".
 .TP
--h 
+.BI \-h \ ldaphost
 LDAP Directory host. This is the hostname of the LDAP system you wish to store zone information on.
-An LDAP server should be listening on port 389 of the target system. This may be ommited, and will default
-to "localhost".
+An LDAP server should be listening on port 389 of the target system. Deprecated in favor of -H.
 .TP
--c 
+.BI \-H \ ldapuri
+LDAP Directory host. This is the LDAP URI of the LDAP system you wish to store zone information on.
+.TP
+.BI \-c 
 This will create the zone portion of the DN you are importing. For instance, if you are creating a domain.com zone,
 zone2ldap should first create "dc=domain,dc=com".  This is useful if you are creating multiple domains.
 .TP
--z 
+.BI \-z 
 This is the name of the zone specified in the SOA record.
+.TP
+.BI \-Z[Z]
+Issue StartTLS (Transport Layer Security) extended operation.  If  you  use  -ZZ,  the  command  will
+require the operation to be successful.
+.TP
+.BI \-o
+Add some very simple OpenLDAPaci attribute(s) to each object created. If a 
+.B Bind DN 
+(specified with
+.B \-D
+above) this/those DN(s) will have 
+.B full access 
+to the object and all of it's child(s).
+.TP
+.BI \-L
+Database creation results are display in LDAP Data Interchange Format detailed in ldif(5) instead
+of written to the database. Only one L is supported, and outputs LDIFv1.
+.TP
+.BI \-O \ security-properties
+Specify SASL security properties.
+.TP
+.BI \-Q
+Enable SASL Quiet mode. Never prompt.
+.TP
+.BI \-R \ realm
+Specify the realm of authentication ID for SASL bind. The form of the realm depends on the actual
+SASL mechanism used.
+.TP
+.BI \-U \ authcid
+Specify the authentication ID for SASL bind. The form of the ID depends on the actual SASL mechanism
+used.
+.TP
+.BI \-X \ authzid
+Specify the requested authorization ID for SASL bind. authzid must be one of the following formats:
+dn:<distinguished name> or u:<username>
+.TP
+.BI \-Y \ mech
+Specify  the  SASL  mechanism  to be used for authentication. If it's not specified, the program will
+choose the best mechanism the server knows.
+.TP
+.BI \-I
+Enable SASL Interactive mode.  Always prompt.  Default is to prompt only as needed.
+.SH LDAP ACI
+If -D is specified more than once, all bind DN's specified will be added to the OpenLDAPaci attribute
+with full access:
+.LP
+.nf
+  OpenLDAPaci: 0#entry#grant;r,s,c;objectClass,dc,[entry]#public#
+  OpenLDAPaci: 1#entry#grant;w,r,s,c;[all]#access-id#uid=bind9,ou=System,o=Bayour.COM,c=SE
+  OpenLDAPaci: 2#entry#grant;w,r,s,c;[all]#access-id#uid=turbo,ou=People,o=Fredriksson,c=SE
+.fi
+.LP
+If
+.B no
+bind DN's is specified, the attribute will get a '%INSERT_DN_HERE%' access ID which
+you will have to replace yourself.
+.LP
+.nf
+  OpenLDAPaci: 0#entry#grant;r,s,c;objectClass,dc,[entry]#public#
+  OpenLDAPaci: 1#entry#grant;w,r,s,c;[all]#access-id#%INSERT_DN_HERE%
+.fi
+.LP
+If your database isn't calling the ACI attribute
+.B OpenLDAPaci
+and the value(s) of this attribute isn't quite what you want, you will have 
+to change the code in the
+.B add_aci_values()
+function located in the
+.B zone2ldap.c
+file.
 .SH EXAMPLES
 Following are brief examples of how to import a zone file into your LDAP DIT.
 .SS Loading zone domain.com, with an LDAP Base DN of dc=domain,dc=com
@@ -48,17 +137,26 @@ zone2ldap -D dc=root -w secret -h localhost -z domain.com -f domain.com.zone
 This will add Resource Records into an ALREADY EXISTING dc=domain,dc=com. The final SOA DN in this case, will be 
 dc=@,dc=domain,dc=com
 
+.SS Same example, but with an LDAP URI
+zone2ldap -D dc=root -w secret -H ldaps://ldap.domain.tld -z domain.com -f domain.com.zone
+
 .SS Loading customer.com, if your LDAP Base DN is dc=provider,dc=net.
 zone2ldap -D dc=root -w secret -h localhost -z customer.com -b dc=provider,dc=net -f customer.com.zone -c
 
 This will create dc=customer,dc=com under dc=provider,dc=net, and add all necessary Resource Records. The final
 root DN to the SOA will be dc=@,dc=customer,dc=com,dc=provider,dc=net.
 
+.SS Loading organization.org, if your LDAP Base DN is ou=DNS,o=Organization,c=SE.
+.SS Connect using TLS and add ACI records. Fail if TLS was not successfull.
+zone2ldap -D dc=root -w secret -h ldap.domain.tld -z organization.org -f organization.org.zone \
+  -b ou=DNS,o=Organization,c=SE -c -ZZ -o
+
+.SS Offline generation of the zone objects
+zone2ldap -b 'ou=DNS,o=Organization,c=SE' -z organization.org -f organization.org.zone -c -o -L
 
 .SH "SEE ALSO"
-named(8) ldap(3) 
+named(8), ldap(3), ldif(5), http://www.venaas.no/ldap/bind-sdb/
 .SH "BUGS"
-Send all bug reports to Jeff McNeil <jeffmcneil@mindspring.com>.
-.SH AUTHOR
-Jeff McNeil <jmcneil@interland.com>
-
+Send all bug reports to Jeff McNeil <jeff@snapcase.g-rock.net>
+.SH AUTHORS
+Jeff McNeil <jeff@snapcase.g-rock.net>, Turbo Fredriksson <turbo@bayour.com>
