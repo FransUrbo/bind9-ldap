@@ -1,0 +1,7 @@
+Bind9 LDAP SDB Change Log
+
+bind9-ldap 1.1.1 TO BE ANNOUNCED
+	Additions/Misc changes
+	  - Include zone2ldap command
+	  - Include zone2ldif command
+	  - Include ldap2zone command
