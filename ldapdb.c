@@ -480,6 +480,17 @@ static int parsescope(int *scope, char *s) {
 
     return -1;
 }
+
+/* Wrapper for malloc() and free() */
+void *do_alloc(char *value) {
+  char *mem_p;
+
+  mem_p = malloc(strlen(value));
+  free(mem_p);
+
+  mem_p = value;
+  return mem_p;
+}
     
 /* returns 0 for ok, -1 for bad syntax, -2 for unknown critical extension */
 static int parseextensions(char *extensions, struct ldapdb_data *data) {
@@ -511,9 +522,9 @@ static int parseextensions(char *extensions, struct ldapdb_data *data) {
 				return -1;
 			
 	    if (!strcasecmp(name, "bindname"))
-				data->bindname = value;
+				data->bindname = do_alloc(value);
 	    else if (!strcasecmp(name, "x-bindpw"))
-				data->bindpw = value;
+				data->bindpw = do_alloc(value);
 #ifdef LDAPDB_TLS
 	    else if (!strcasecmp(name, "x-tls"))
 				data->tls = value == NULL || !strcasecmp(value, "true");
