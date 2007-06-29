@@ -180,6 +180,10 @@ main (int *argc, char **argv)
   result = dns_name_fromtext (zone, &buff, dns_rootname, ISC_FALSE, NULL);
   isc_result_check (result, "dns_name_fromtext");
 
+  /* It is required to initialize the hash before dns_db_create in BIND 9 */
+  result = isc_hash_create(isc_ctx, NULL, DNS_NAME_MAXWIRE);
+  isc_result_check (result, "isc_hash_create");
+
   result =
     dns_db_create (isc_ctx, "rbt", zone, dns_dbtype_zone, dns_rdataclass_in,
 		   0, NULL, &db);

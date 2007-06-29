@@ -1,7 +1,8 @@
 /*
- * ldapdb.c version 1.0-beta
+ * ldapdb.c version 1.1.1 (beta)
  *
  * Copyright (C) 2002, 2004, 2005 Stig Venaas
+ * Copyright (C) 2007 Turbo Fredriksson
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -198,60 +199,90 @@ ldapdb_getconn(struct ldapdb_data *data)
 }
 
 static void
-ldapdb_bind(struct ldapdb_data *data, LDAP **ldp) {
+ldapdb_bind(const char *zone, struct ldapdb_data *data, LDAP **ldp) {
 #ifndef LDAPDB_RFC1823API
 	const int ver = LDAPDB_LDAP_VERSION;
 #endif
-	int failure = 1, counter = 1;
+	int failure = 1, counter = 1, rc;
 
-	/* Make sure we try at least five times to connect+bind
+	/* Make sure we try at least three times to connect+bind
 	 * to the LDAP server. Sleep five seconds between each
 	 * attempt => 25 seconds before timeout! */
-	while((failure == 1) && (counter <= 5)) {
+	while((failure == 1) && (counter <= 3)) {
 		if (*ldp != NULL)
 			ldap_unbind(*ldp);
 
+		/* ----------------------------- */
+		/* -- Connect to LDAP server. -- */
 #ifdef LDAP_API_FEATURE_X_OPENLDAP
 		/* Connect to LDAP server using URL */
-		ldap_initialize(ldp, data->url);
+		rc = ldap_initialize(ldp, data->url);
+		if (rc != LDAP_SUCCESS) {
 #else
 		*ldp = ldap_open(data->hostname, data->portno);
+		if (*ldp == NULL) {
 #endif
 
-		if (*ldp == NULL) {
 			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
 #ifdef LDAP_API_FEATURE_X_OPENLDAP
-				      "LDAP sdb zone ldapdb_bind(): ldap_initialize() failed"
+				      "LDAP sdb zone '%s': ldapdb_bind(): ldap_initialize() failed.",
 #else			      
-				      "LDAP sdb zone ldapdb_bind(): ldap_open() failed"
+				      "LDAP sdb zone '%s': ldapdb_bind(): ldap_open() failed.",
 #endif
-				      );
-			return;
-		}
+				      zone);
 
+			/* Failed - wait five seconds, then try again. */
+			goto try_bind_again;
+		} else
+		  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(1),
+#ifdef LDAP_API_FEATURE_X_OPENLDAP
+				"LDAP sdb zone '%s': ldapdb_bind(): Connected to ldapserver '%s'", zone, data->url);
+#else
+				"LDAP sdb zone '%s': ldapdb_bind(): Connected to ldapserver '%s:%d'", zone, data->hostname, data->portno);
+#endif
+
+		/* ----------------- */
+		/* -- Set option. -- */
 #ifndef LDAPDB_RFC1823API
-		ldap_set_option(*ldp, LDAP_OPT_PROTOCOL_VERSION, &ver);
+		ldap_set_option(*ldp, LDAP_OPT_PROTOCOL_VERSION, (const void *)&ver);
+
+		/* Allow referrals */
+		ldap_set_option(*ldp, LDAP_OPT_REFERRALS, LDAP_OPT_ON);
+
+		isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(1),
+			      "LDAP sdb zone '%s': ldapdb_bind(): Set option PROTOCOL_VERSION to '%d' and allow referrals.", zone, ver);
 #endif
 
+		/* ---------------- */
+		/* -- Start TLS. -- */
 #ifdef LDAPDB_TLS
-		if (data->tls)
+		if (data->tls) {
 			ldap_start_tls_s(*ldp, NULL, NULL);
+			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(1),
+				      "LDAP sdb zone '%s': ldapdb_bind(): Started TLS", zone);
+		}
 #endif
 
+		/* ------------------------------ */
+		/* -- Bind to the LDAP server. -- */
 		if (ldap_simple_bind_s(*ldp, data->bindname, data->bindpw) != LDAP_SUCCESS) {
 			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
-				      "LDAP sdb zone ldapdb_bind(): ldap_simple_bind_s(ldp, '%s', '<secret>') failed",
-				      data->bindname);
+				      "LDAP sdb zone '%s': ldapdb_bind(): ldap_simple_bind_s(ldp, '%s', '<secret>') failed.",
+				      zone, data->bindname);
 
 			ldap_perror(*ldp, "ldap_simple_bind_s");
 
 			ldap_unbind(*ldp);
 			*ldp = NULL;
 
+		try_bind_again:
 			sleep(5);
 			counter++;
-		} else
+		} else {
+			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(1),
+				      "LDAP sdb zone '%s': ldapdb_bind(): Bound to ldapserver as '%s'", zone, data->bindname);
 			failure = 0;
+		}
 	}
 }
 
@@ -274,7 +305,7 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 	if (ldp == NULL)
 		return (ISC_R_FAILURE);
 	if (*ldp == NULL) {
-		ldapdb_bind(data, ldp);
+		ldapdb_bind(zone, data, ldp);
 	if (*ldp == NULL)
 	    LDAPDB_FAILURE("bind failed");
 	}
@@ -293,7 +324,7 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 
     msgid = ldap_search(*ldp, data->base, data->scope, fltr, data->attrs, 0);
 	if (msgid == -1) {
-		ldapdb_bind(data, ldp);
+		ldapdb_bind(zone, data, ldp);
 		if (*ldp != NULL)
 	    msgid = ldap_search(*ldp, data->base, data->scope, fltr, data->attrs, 0);
 	}
