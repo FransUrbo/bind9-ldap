@@ -51,6 +51,8 @@
 #include <ldap.h>
 #include "ldapdb.h"
 
+#include <unistd.h>
+
 /*
  * A simple database driver for LDAP
  */ 
@@ -200,41 +202,56 @@ ldapdb_bind(struct ldapdb_data *data, LDAP **ldp) {
 #ifndef LDAPDB_RFC1823API
 	const int ver = LDAPDB_LDAP_VERSION;
 #endif
+	int failure = 1, counter = 1;
 
-	if (*ldp != NULL)
-		ldap_unbind(*ldp);
+	/* Make sure we try at least five times to connect+bind
+	 * to the LDAP server. Sleep five seconds between each
+	 * attempt => 25 seconds before timeout! */
+	while((failure == 1) && (counter <= 5)) {
+		if (*ldp != NULL)
+			ldap_unbind(*ldp);
+
 #ifdef LDAP_API_FEATURE_X_OPENLDAP
-    /* Connect to LDAP server using URL */
-    ldap_initialize(ldp, data->url);
+		/* Connect to LDAP server using URL */
+		ldap_initialize(ldp, data->url);
 #else
-	*ldp = ldap_open(data->hostname, data->portno);
+		*ldp = ldap_open(data->hostname, data->portno);
 #endif
-    if (*ldp == NULL) {
-	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
+
+		if (*ldp == NULL) {
+			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
 #ifdef LDAP_API_FEATURE_X_OPENLDAP
-		      "LDAP sdb zone ldapdb_bind(): ldap_initialize() failed"
+				      "LDAP sdb zone ldapdb_bind(): ldap_initialize() failed"
 #else			      
-		      "LDAP sdb zone ldapdb_bind(): ldap_open() failed"
+				      "LDAP sdb zone ldapdb_bind(): ldap_open() failed"
 #endif
-		      );
-		return;
-    }
+				      );
+			return;
+		}
 
 #ifndef LDAPDB_RFC1823API
-	ldap_set_option(*ldp, LDAP_OPT_PROTOCOL_VERSION, &ver);
+		ldap_set_option(*ldp, LDAP_OPT_PROTOCOL_VERSION, &ver);
 #endif
 
 #ifdef LDAPDB_TLS
-    if (data->tls)
-		ldap_start_tls_s(*ldp, NULL, NULL);
+		if (data->tls)
+			ldap_start_tls_s(*ldp, NULL, NULL);
 #endif
 
-	if (ldap_simple_bind_s(*ldp, data->bindname, data->bindpw) != LDAP_SUCCESS) {
-	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
-		      "LDAP sdb zone ldapdb_bind(): ldap_simple_bind_s(ldp, '%s', '<secret>') failed",
-		      data->bindname);
-		ldap_unbind(*ldp);
-		*ldp = NULL;
+		if (ldap_simple_bind_s(*ldp, data->bindname, data->bindpw) != LDAP_SUCCESS) {
+			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
+				      "LDAP sdb zone ldapdb_bind(): ldap_simple_bind_s(ldp, '%s', '<secret>') failed",
+				      data->bindname);
+
+			ldap_perror(*ldp, "ldap_simple_bind_s");
+
+			ldap_unbind(*ldp);
+			*ldp = NULL;
+
+			sleep(5);
+			counter++;
+		} else
+			failure = 0;
 	}
 }
 

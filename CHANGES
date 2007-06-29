@@ -5,3 +5,7 @@ bind9-ldap 1.1.1 TO BE ANNOUNCED
 	  - Include zone2ldap command
 	  - Include zone2ldif command
 	  - Include ldap2zone command
+	  - Try connecting five times (with five seconds sleep()
+	    between each attempt) to the LDAP server before failing.
+	  - More verbose error if failing to connect/bind to the
+	    LDAP server (using the ldap_perror() function).
