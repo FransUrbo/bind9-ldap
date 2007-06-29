@@ -1,0 +1,22 @@
+INSTALLATION
+
+To Compile zone2ldap from contrib/sdb directory:
+
+   gcc -g `../../isc-config.sh --cflags isc dns` -c zone2ldap.c
+   gcc -g -o zone2ldap zone2ldap.o `isc-config.sh --libs isc dns` -lldap -llber -lresolv
+
+If you would like to use SASL authentication,
+then you will need to compile using the Makefile:
+
+   make SECUREBIND=1 zone2ldap
+
+For TLS support add 'LDAPDB_TLS=1' to the make command.
+
+USAGE:
+
+See zone2ldap.1
+
+BUGS:
+
+Jeff McNeil <jeff@snapcase.g-rock.net>
+Turbo Fredriksson <turbo@bayour.com>

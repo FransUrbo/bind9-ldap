@@ -1,0 +1,30 @@
+INSTALLATION
+
+To Compile ldap2zone from contrib/sdb directory:
+
+   gcc -g `../../isc-config.sh --cflags isc dns` -c ldap2zone.c
+   gcc -g -o ldap2zone ldap2zone.o `isc-config.sh --libs isc dns` -lldap -llber -lresolv
+
+If you would like to use SASL authentication,
+then you will need to compile using the Makefile:
+
+   make SECUREBIND=1 ldap2zone
+
+For TLS support add 'LDAPDB_TLS=1' to the make command.
+
+USAGE:
+  SASL Authentication (w/ Kerberos V ticket) _OR_ anonymous
+  (w/o Kerberos V ticket):
+	./ldap2zone domain.tld ldaps://ldap.domain.tld/dc=net 3600
+
+  Same as but using TLS instead of SSL (with two Z, fail if
+  TLS isn't working):
+	./ldap2zone -ZZ domain.tld ldap://ldap.domain.tld/dc=net 3600
+
+  Anonymous bind (w/ bind DN):
+	./ldap2zone -D dc=root domain.tld ldaps://ldap.domain.tld/dc=net 3600
+
+BUGS:
+
+Stig Venaas <venaas@ivanova.venaas.no>
+Turbo Fredriksson <turbo@bayour.com>
