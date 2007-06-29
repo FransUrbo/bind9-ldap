@@ -9,6 +9,8 @@
  * copyright notice and this permission notice appear in all copies.
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
+ *
+ * $Id: ldapdb.c,v 1.6 2007-06-29 21:29:02 turbo Exp $
  */
 
 /*

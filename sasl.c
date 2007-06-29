@@ -11,6 +11,8 @@
  * A copy of this license is available in the file LICENSE in the
  * top-level directory of the distribution or, alternatively, at
  * <http://www.OpenLDAP.org/license.html>.
+ *
+ * $Id: sasl.c,v 1.2 2007-06-29 21:29:03 turbo Exp $
  */
 
 #include <stdio.h>

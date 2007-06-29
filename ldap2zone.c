@@ -1,3 +1,5 @@
+/* $Id: ldap2zone.c,v 1.2 2007-06-29 21:29:02 turbo Exp $ */
+
 #include <sys/types.h>
 #include <stdio.h>
 

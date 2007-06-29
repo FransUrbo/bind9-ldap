@@ -6,6 +6,8 @@
 # purpose with or without fee is hereby granted, provided that the above
 # copyright notice and this permission notice appear in all copies.
 
+# $Id: zone2ldif.pl,v 1.3 2007-06-29 21:29:03 turbo Exp $
+
 print( "zone2ldif: The converter of files of zones DNS in the file of a LDIFF format.\n" );
 print( "           Version 1.01 (C) 2005 Roman A.Egorov <rigel\@atao.taimyr.ru>.\n" );
 $err = 0;

@@ -29,6 +29,8 @@
  * Update to objectClass code, and add_to_rr_list function
  * (I need to rename that) to support the dNSZone schema,
  * ditched dNSDomain2 schema support. Version 0.3-ALPHA
+ *
+ * $Id: zone2ldap.c,v 1.5 2007-06-29 21:29:03 turbo Exp $
  */
 
 #include <errno.h>
