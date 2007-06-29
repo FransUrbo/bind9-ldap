@@ -1,9 +1,13 @@
 This is an attempt at an LDAP back-end for BIND 9 using the new simplified
-database interface "sdb". This is release 1.0 and should be pretty
-stable. Note that since version 0.4 a new schema is used. It is not
-backwards compatible with versions before 0.4.
+database interface "sdb". This is release 1.1.0 and has some new
+experimental features. For production I would recommend using 1.0 unless
+you really need the new features. I'm grateful though if you help test
+1.1.0 and give positive or negative feedback.
 
-1.0 is identical to 1.0-beta.
+1.1.0 has support for specifying search scope and which attributes to
+request in the URL. With OpenLDAP libraries it also supports URLs with
+ldaps and ldapi schemes for SSL and UNIX domain sockets resp. See
+INSTALL for more info on how to use these features.
 
 1.0-beta fixes a large memory leak. An extension x-tls for enabling TLS
 has been added.

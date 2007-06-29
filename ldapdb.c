@@ -1,19 +1,22 @@
 /*
- * ldapdb.c version 1.0
+ * ldapdb.c version 1.0-beta
  *
- * Copyright (C) 2002, 2004 Stig Venaas
+ * Copyright (C) 2002, 2004, 2005 Stig Venaas
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
  * copyright notice and this permission notice appear in all copies.
  *
- * Contributors: Jeremy C. McDermond
+ * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  */
 
 /*
- * If you want to use TLS, uncomment the define below
+ * If you want to use TLS and not OpenLDAP library, uncomment the define below
  */
 /* #define LDAPDB_TLS */
+#ifdef LDAP_API_FEATURE_X_OPENLDAP
+#define LDAPDB_TLS
+#endif
 
 /*
  * If you are using an old LDAP API uncomment the define below. Only do this
@@ -55,13 +58,20 @@
 /* enough for name with 8 labels of max length */
 #define MAXNAMELEN 519
 
+#define LDAPDB_FAILURE(msg) { \
+    isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, \
+		  ISC_LOG_ERROR, "LDAP sdb zone '%s': %s", zone, msg); \
+    return (ISC_R_FAILURE); }
+
 static dns_sdbimplementation_t *ldapdb = NULL;
 
 struct ldapdb_data {
-	char *hostport;
+    char *url;
 	char *hostname;
 	int portno;
 	char *base;
+    char **attrs;
+    int scope;
 	int defaultttl;
 	char *filterall;
 	int filteralllen;
@@ -70,9 +80,7 @@ struct ldapdb_data {
 	char *filtername;
 	char *bindname;
 	char *bindpw;
-#ifdef LDAPDB_TLS
 	int tls;
-#endif
 };
 
 /* used by ldapdb_getconn */
@@ -172,54 +180,66 @@ ldapdb_getconn(struct ldapdb_data *data)
 	/* threaddata points at the connection list for current thread */
 	/* look for existing connection to our server */
 	conndata = ldapdb_find((struct ldapdb_entry *)threaddata->data,
-			       data->hostport, strlen(data->hostport));
+			   data->url, strlen(data->url));
 	if (conndata == NULL) {
 		/* no connection data structure for this server, create one */
 		conndata = malloc(sizeof(*conndata));
 		if (conndata == NULL)
 			return (NULL);
-		conndata->index = data->hostport;
-		conndata->size = strlen(data->hostport);
+	conndata->index = data->url;
+	conndata->size = strlen(data->url);
 		conndata->data = NULL;
-		ldapdb_insert((struct ldapdb_entry **)&threaddata->data,
-			      conndata);
+	ldapdb_insert((struct ldapdb_entry **)&threaddata->data, conndata);
 	}
 
 	return (LDAP **)&conndata->data;
 }
 
 static void
-ldapdb_bind(struct ldapdb_data *data, LDAP **ldp)
-{
+ldapdb_bind(struct ldapdb_data *data, LDAP **ldp) {
 #ifndef LDAPDB_RFC1823API
 	const int ver = LDAPDB_LDAP_VERSION;
 #endif
 
 	if (*ldp != NULL)
 		ldap_unbind(*ldp);
+#ifdef LDAP_API_FEATURE_X_OPENLDAP
+    /* Connect to LDAP server using URL */
+    ldap_initialize(ldp, data->url);
+#else
 	*ldp = ldap_open(data->hostname, data->portno);
-	if (*ldp == NULL)
+#endif
+    if (*ldp == NULL) {
+	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
+#ifdef LDAP_API_FEATURE_X_OPENLDAP
+		      "LDAP sdb zone ldapdb_bind(): ldap_initialize() failed"
+#else			      
+		      "LDAP sdb zone ldapdb_bind(): ldap_open() failed"
+#endif
+		      );
 		return;
+    }
 
 #ifndef LDAPDB_RFC1823API
 	ldap_set_option(*ldp, LDAP_OPT_PROTOCOL_VERSION, &ver);
 #endif
 
 #ifdef LDAPDB_TLS
-	if (data->tls) {
+    if (data->tls)
 		ldap_start_tls_s(*ldp, NULL, NULL);
-	}
 #endif
 
 	if (ldap_simple_bind_s(*ldp, data->bindname, data->bindpw) != LDAP_SUCCESS) {
+	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
+		      "LDAP sdb zone ldapdb_bind(): ldap_simple_bind_s(ldp, '%s', '<secret>') failed",
+		      data->bindname);
 		ldap_unbind(*ldp);
 		*ldp = NULL;
 	}
 }
 
 static isc_result_t
-ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata)
-{
+ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 	struct ldapdb_data *data = dbdata;
 	isc_result_t result = ISC_R_NOTFOUND;
 	LDAP **ldp;
@@ -238,11 +258,8 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata)
 		return (ISC_R_FAILURE);
 	if (*ldp == NULL) {
 		ldapdb_bind(data, ldp);
-		if (*ldp == NULL) {
-			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,	
-				      "LDAP sdb zone '%s': bind failed", zone);
-			return (ISC_R_FAILURE);
-		}
+	if (*ldp == NULL)
+	    LDAPDB_FAILURE("bind failed");
 	}
 
 	if (name == NULL) {
@@ -257,11 +274,11 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata)
 		fltr = data->filterone;
 	}
 
-	msgid = ldap_search(*ldp, data->base, LDAP_SCOPE_SUBTREE, fltr, NULL, 0);
+    msgid = ldap_search(*ldp, data->base, data->scope, fltr, data->attrs, 0);
 	if (msgid == -1) {
 		ldapdb_bind(data, ldp);
 		if (*ldp != NULL)
-			msgid = ldap_search(*ldp, data->base, LDAP_SCOPE_SUBTREE, fltr, NULL, 0);
+	    msgid = ldap_search(*ldp, data->base, data->scope, fltr, data->attrs, 0);
 	}
 
 	if (*ldp == NULL || msgid == -1) {
@@ -287,9 +304,7 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata)
 		e = ldap_first_entry(ld, res);
 		if (e == NULL) {
 			ldap_msgfree(res);
-			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,	
-				      "LDAP sdb zone '%s': ldap_first_entry failed", zone);
-			return (ISC_R_FAILURE);
+	    LDAPDB_FAILURE("ldap_first_entry failed");
                 }
 
 		if (name == NULL) {
@@ -331,7 +346,7 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata)
 								break;
 						}
 					}
-;					if (result != ISC_R_SUCCESS) {
+		    if (result != ISC_R_SUCCESS) {
 						isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,	
 							      "LDAP sdb zone '%s': dns_sdb_put... failed for %s", zone, vals[i]);
 						ldap_value_free(vals);
@@ -372,21 +387,16 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata)
 /* callback routines */
 static isc_result_t
 ldapdb_lookup(const char *zone, const char *name, void *dbdata,
-	      dns_sdblookup_t *lookup)
-{
+	      dns_sdblookup_t *lookup) {
 	return ldapdb_search(zone, name, dbdata, lookup);
 }
 
 static isc_result_t
-ldapdb_allnodes(const char *zone, void *dbdata,
-		dns_sdballnodes_t *allnodes)
-{
+ldapdb_allnodes(const char *zone, void *dbdata, dns_sdballnodes_t *allnodes) {
 	return ldapdb_search(zone, NULL, dbdata, allnodes);
 }
 
-static char *
-unhex(char *in)
-{
+static char *unhex(char *in) {
 	static const char hexdigits[] = "0123456789abcdef";
 	char *p, *s = in;
 	int d1, d2;
@@ -406,10 +416,56 @@ unhex(char *in)
 	return in;
 }
 
+static char **parseattrs(char *a) {
+    char **attrs, *s;
+    int i;
+    
+    /* find number of commas */
+    for (i = 0, s = a; *s && *s != '?'; s++)
+	if (*s == ',')
+	    i++;
+
+    /* two more than # of commas, need room for NULL terminator */
+    attrs = malloc(sizeof(char *) * (i + 2));
+    if (!attrs)
+	return (NULL);
+    
+    for (i = 0, s = a; ; i++) {
+	attrs[i] = s;
+	if (!(s = strchr(s, ',')))
+	    break;
+	*s++ = '\0';
+	if (!*attrs[i])
+	    break;
+    }
+    if (!*attrs[i]) {
+	free(attrs);
+	return NULL;
+    }
+    attrs[i + 1] = NULL;
+    return attrs;
+}
+
+/* returns 0 for ok, -1 for bad syntax */
+static int parsescope(int *scope, char *s) {
+    if (!s || !strcmp(s, "sub")) {
+	*scope = LDAP_SCOPE_SUBTREE;
+	return 0;
+    }
+    if (!strcmp(s, "one")) {
+	*scope = LDAP_SCOPE_ONELEVEL;
+	return 0;
+    }
+    if (!strcmp(s, "base")) {
+	*scope = LDAP_SCOPE_BASE;
+	return 0;
+    }
+
+    return -1;
+}
+    
 /* returns 0 for ok, -1 for bad syntax, -2 for unknown critical extension */
-static int
-parseextensions(char *extensions, struct ldapdb_data *data)
-{
+static int parseextensions(char *extensions, struct ldapdb_data *data) {
 	char *s, *next, *name, *value;
 	int critical;
 
@@ -418,55 +474,49 @@ parseextensions(char *extensions, struct ldapdb_data *data)
 		if (s != NULL) {
 			*s++ = '\0';
 			next = s;
-		} else {
+	} else
 			next = NULL;
-		}
 
 		if (*extensions != '\0') {
 			s = strchr(extensions, '=');
 			if (s != NULL) {
 				*s++ = '\0';
 				value = *s != '\0' ? s : NULL;
-			} else {
+	    } else
 				value = NULL;
-			}
 			name = extensions;
 
 			critical = *name == '!';
-			if (critical) {
+	    if (critical)
 				name++;
-			}
-			if (*name == '\0') {
+
+	    if (*name == '\0')
 				return -1;
-			}
 			
-			if (!strcasecmp(name, "bindname")) {
+	    if (!strcasecmp(name, "bindname"))
 				data->bindname = value;
-			} else if (!strcasecmp(name, "x-bindpw")) {
+	    else if (!strcasecmp(name, "x-bindpw"))
 				data->bindpw = value;
 #ifdef LDAPDB_TLS
-			} else if (!strcasecmp(name, "x-tls")) {
+	    else if (!strcasecmp(name, "x-tls"))
 				data->tls = value == NULL || !strcasecmp(value, "true");
 #endif
-			} else if (critical) {
+	    else if (critical)
 				return -2;
 			}
-		}
 		extensions = next;
 	}
 	return 0;
 }
 
-static void
-free_data(struct ldapdb_data *data)
-{
-	if (data->hostport != NULL)
-		isc_mem_free(ns_g_mctx, data->hostport);
-	if (data->hostname != NULL)
+static void free_data(struct ldapdb_data *data) {
+    if (data->hostname)
 		isc_mem_free(ns_g_mctx, data->hostname);
-	if (data->filterall != NULL)
+    if (data->attrs)
+	free(data->attrs);
+    if (data->filterall)
 		isc_mem_put(ns_g_mctx, data->filterall, data->filteralllen);
-	if (data->filterone != NULL)
+    if (data->filterone)
 		isc_mem_put(ns_g_mctx, data->filterone, data->filteronelen);
         isc_mem_put(ns_g_mctx, data, sizeof(struct ldapdb_data));
 }
@@ -474,10 +524,10 @@ free_data(struct ldapdb_data *data)
 
 static isc_result_t
 ldapdb_create(const char *zone, int argc, char **argv,
-	      void *driverdata, void **dbdata)
-{
+	      void *driverdata, void **dbdata) {
 	struct ldapdb_data *data;
-	char *s, *filter = NULL, *extensions = NULL;
+    char *s, *hostport, *filter = NULL, *attrs = NULL, *scope = NULL,
+	*extensions = NULL;
 	int defaultttl;
 
 	UNUSED(driverdata);
@@ -485,81 +535,91 @@ ldapdb_create(const char *zone, int argc, char **argv,
 	/* we assume that only one thread will call create at a time */
 	/* want to do this only once for all instances */
 
-	if ((argc < 2)
-	    || (argv[0] != strstr( argv[0], "ldap://"))
-	    || ((defaultttl = atoi(argv[1])) < 1))
-                return (ISC_R_FAILURE);
+    if (argc < 2)
+	LDAPDB_FAILURE("ldapdb_create(): Both URL and TTL value must be specified");
+
+    if ((argv[0] == strstr(argv[0], "ldaps://")) || (argv[0] == strstr(argv[0], "ldapi://"))) {
+#ifndef LDAP_API_FEATURE_X_OPENLDAP
+	LDAPDB_FAILURE("ldapdb_create(): ldapi and ldaps schemes are only supported with OpenLDAP library for now");
+#endif
+    } else if (argv[0] != strstr(argv[0], "ldap://"))
+	LDAPDB_FAILURE("ldapdb_create(): First argument must be an LDAP URL");
+
+    if ((defaultttl = atoi(argv[1])) < 1)
+	LDAPDB_FAILURE("ldapdb_create(): Default TTL must be a positive integer");
+
         data = isc_mem_get(ns_g_mctx, sizeof(struct ldapdb_data));
         if (data == NULL)
                 return (ISC_R_NOMEMORY);
 
 	memset(data, 0, sizeof(struct ldapdb_data));
-	data->hostport = isc_mem_strdup(ns_g_mctx, argv[0] + strlen("ldap://"));
-	if (data->hostport == NULL) {
-		free_data(data);
-		return (ISC_R_NOMEMORY);
-	}
-
+    data->url = argv[0];
 	data->defaultttl = defaultttl;
 
-	s = strchr(data->hostport, '/');
-	if (s != NULL) {
+    /* we know data->url starts with "ldap://", "ldaps://" or "ldapi://" */
+    hostport = argv[0] + strlen(strstr(argv[0], "ldap://") ? "ldap://" : "ldap.://");
+	
+    s = strchr(hostport, '/');
+    if (s) {
 		*s++ = '\0';
 		data->base = s;
 		/* attrs, scope, filter etc? */
 		s = strchr(s, '?');
-		if (s != NULL) {
+	if (s) {
 			*s++ = '\0';
-			/* ignore attributes */
+	    attrs = s;
 			s = strchr(s, '?');
-			if (s != NULL) {
+	    if (s) {
 				*s++ = '\0';
-				/* ignore scope */
+		/* scope */
+		scope = s;
 				s = strchr(s, '?');
-				if (s != NULL) {
+		if (s) {
 					*s++ = '\0';
 					/* filter */
 					filter = s;
 					s = strchr(s, '?');
-					if (s != NULL) {
+		    if (s) {
 						*s++ = '\0';
 						/* extensions */
 						extensions = s;
 						s = strchr(s, '?');
-						if (s != NULL) {
+			if (s)
 							*s++ = '\0';
-						}
-						if (*extensions == '\0') {
+			if (!*extensions)
 							extensions = NULL;
 						}
-					}
-					if (*filter == '\0') {
+		    if (!*filter)
 						filter = NULL;
 					}
+		if (!*scope)
+		    scope = NULL;
 				}
+	    if (!*attrs)
+		attrs = NULL;
 			}
-		}
-		if (*data->base == '\0') {
+	if (!*data->base)
 			data->base = NULL;
 		}
-	}
+
+    if (attrs && !(data->attrs = parseattrs(attrs)))
+	LDAPDB_FAILURE("URL: Error parsing attributes");
+
+    if (parsescope(&data->scope, scope))
+	LDAPDB_FAILURE("URL: Scope must be base, one or sub");
 
 	/* parse extensions */
-	if (extensions != NULL) {
+    if (extensions) {
 		int err;
 
 		err = parseextensions(extensions, data);
 		if (err < 0) {
 			/* err should be -1 or -2 */
 			free_data(data);
-			if (err == -1) {
-				isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
-					      "LDAP sdb zone '%s': URL: extension syntax error", zone);
-			} else if (err == -2) {
-				isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
-					      "LDAP sdb zone '%s': URL: unknown critical extension", zone);
-			}
-			return (ISC_R_FAILURE);
+	    if (err == -1)
+		LDAPDB_FAILURE("URL: extension syntax error")
+	    else if (err == -2)
+		LDAPDB_FAILURE("URL: unknown critical extension");
 		}
 	}
 
@@ -568,9 +628,7 @@ ldapdb_create(const char *zone, int argc, char **argv,
 	    (data->bindname != NULL && unhex(data->bindname) == NULL) ||
 	    (data->bindpw != NULL && unhex(data->bindpw) == NULL)) {
 		free_data(data);
-		isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,	
-			      "LDAP sdb zone '%s': URL: bad hex values", zone);
-		return (ISC_R_FAILURE);
+	LDAPDB_FAILURE("URL: bad hex values");
 	}
 
 	/* compute filterall and filterone once and for all */
@@ -602,14 +660,15 @@ ldapdb_create(const char *zone, int argc, char **argv,
 	}
 	data->filtername = data->filterone + strlen(data->filterone);
 
+#ifndef LDAP_API_FEATURE_X_OPENLDAP
 	/* support URLs with literal IPv6 addresses */
-	data->hostname = isc_mem_strdup(ns_g_mctx, data->hostport + (*data->hostport == '[' ? 1 : 0));
+    data->hostname = isc_mem_strdup(ns_g_mctx, hostport + (*hostport == '[' ? 1 : 0));
 	if (data->hostname == NULL) {
 		free_data(data);
 		return (ISC_R_NOMEMORY);
 	}
 
-	if (*data->hostport == '[' &&
+    if (*hostport == '[' &&
 	    (s = strchr(data->hostname, ']')) != NULL )
 		*s++ = '\0';
 	else
@@ -620,6 +679,7 @@ ldapdb_create(const char *zone, int argc, char **argv,
 		data->portno = atoi(s);
 	} else
 		data->portno = LDAP_PORT;
+#endif
 
 	*dbdata = data;
 	return (ISC_R_SUCCESS);
@@ -644,8 +704,7 @@ static dns_sdbmethods_t ldapdb_methods = {
 };
 
 /* Wrapper around dns_sdb_register() */
-isc_result_t
-ldapdb_init(void) {
+isc_result_t ldapdb_init(void) {
 	unsigned int flags =
 		DNS_SDBFLAG_RELATIVEOWNER |
 		DNS_SDBFLAG_RELATIVERDATA |
@@ -657,8 +716,7 @@ ldapdb_init(void) {
 }
 
 /* Wrapper around dns_sdb_unregister() */
-void
-ldapdb_clear(void) {
+void ldapdb_clear(void) {
 	if (ldapdb != NULL) {
 		/* clean up thread data */
 		ldapdb_getconn(NULL);
