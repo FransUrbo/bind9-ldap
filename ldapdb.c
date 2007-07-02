@@ -10,7 +10,7 @@
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  *
- * $Id: ldapdb.c,v 1.7 2007-06-29 21:58:42 turbo Exp $
+ * $Id: ldapdb.c,v 1.8 2007-07-02 10:48:42 turbo Exp $
  */
 
 /* If you want to use TLS and not OpenLDAP library, uncomment the define below */
@@ -511,17 +511,6 @@ static int parsescope(int *scope, char *s) {
   return -1;
 }
 
-/* Wrapper for malloc() and free() */
-void *do_alloc(char *value) {
-  char *mem_p;
-  
-  mem_p = malloc(strlen(value));
-  free(mem_p);
-  
-  mem_p = value;
-  return mem_p;
-}
-
 /* returns 0 for ok, -1 for bad syntax, -2 for unknown critical extension */
 static int parseextensions(char *extensions, struct ldapdb_data *data) {
   char *s, *next, *name, *value;
@@ -552,9 +541,9 @@ static int parseextensions(char *extensions, struct ldapdb_data *data) {
 		return -1;
 	  
 	  if (!strcasecmp(name, "bindname"))
-		data->bindname = do_alloc(value);
+		data->bindname = isc_mem_get(ns_g_mctx, value);
 	  else if (!strcasecmp(name, "x-bindpw"))
-		data->bindpw = do_alloc(value);
+		data->bindpw = isc_mem_get(ns_g_mctx, value);
 #ifdef LDAPDB_TLS
 	  else if (!strcasecmp(name, "x-tls"))
 		data->tls = value == NULL || !strcasecmp(value, "true");
@@ -576,6 +565,10 @@ static void free_data(struct ldapdb_data *data) {
 	isc_mem_put(ns_g_mctx, data->filterall, data->filteralllen);
   if (data->filterone)
 	isc_mem_put(ns_g_mctx, data->filterone, data->filteronelen);
+  if (data->bindname)
+	isc_mem_free(ns_g_mctx, data->bindname);
+  if (data->bindpw)
+	isc_mem_free(ns_g_mctx, data->bindpw);
   isc_mem_put(ns_g_mctx, data, sizeof(struct ldapdb_data));
 }
 

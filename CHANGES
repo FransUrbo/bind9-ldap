@@ -2,8 +2,8 @@ Bind9 LDAP SDB Change Log
 
 bind9-ldap 1.1.1 TO BE ANNOUNCED
 	Bug fixes
-	  - Call malloc() and free() before we assign a value to the
-	    bind{name,pw} variables. I've notice a memory thrashing,
+	  - Call isc_mem_get() to allocate memory before we assign a value
+	    to the bind{name,pw} variables. I've notice a memory thrashing,
 	    maybe this will help...
 	  - Fix zone2ldap.c:main() to work with later Bind9.
 	  - Update paths in the Makefile (reflect the fact that
