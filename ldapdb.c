@@ -10,7 +10,7 @@
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  *
- * $Id: ldapdb.c,v 1.8 2007-07-02 10:48:42 turbo Exp $
+ * $Id: ldapdb.c,v 1.9 2007-07-02 20:06:16 turbo Exp $
  */
 
 /* If you want to use TLS and not OpenLDAP library, uncomment the define below */
@@ -214,6 +214,10 @@ ldapdb_bind(const char *zone, struct ldapdb_data *data, LDAP **ldp) {
 	/* ----------------------------- */
 	/* -- Connect to LDAP server. -- */
 #ifdef LDAP_API_FEATURE_X_OPENLDAP
+	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(2),
+				      "LDAP sdb zone '%s': ldap_initialize(%s)",
+					  zone, data->url);
+
 	/* Connect to LDAP server using URL */
 	rc = ldap_initialize(ldp, data->url);
 	if (rc != LDAP_SUCCESS) {
@@ -224,20 +228,21 @@ ldapdb_bind(const char *zone, struct ldapdb_data *data, LDAP **ldp) {
 		
 		isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
 #ifdef LDAP_API_FEATURE_X_OPENLDAP
-				      "LDAP sdb zone '%s': ldapdb_bind(): ldap_initialize() failed.",
+				      "LDAP sdb zone '%s': ldapdb_bind(): ldap_initialize() failed. LDAP URL: %s",
+					  zone, data->url);
 #else			      
 				      "LDAP sdb zone '%s': ldapdb_bind(): ldap_open() failed.",
-#endif
 				      zone);
+#endif
 		
 		/* Failed - wait five seconds, then try again. */
 		goto try_bind_again;
 	  } else
-		isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(1),
+		isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(2),
 #ifdef LDAP_API_FEATURE_X_OPENLDAP
 					  "LDAP sdb zone '%s': ldapdb_bind(): Connected to ldapserver '%s'", zone, data->url);
 #else
-	  "LDAP sdb zone '%s': ldapdb_bind(): Connected to ldapserver '%s:%d'", zone, data->hostname, data->portno);
+					  "LDAP sdb zone '%s': ldapdb_bind(): Connected to ldapserver '%s:%d'", zone, data->hostname, data->portno);
 #endif
 	
 	/* ----------------- */
@@ -248,7 +253,7 @@ ldapdb_bind(const char *zone, struct ldapdb_data *data, LDAP **ldp) {
 	/* Allow referrals */
 	ldap_set_option(*ldp, LDAP_OPT_REFERRALS, LDAP_OPT_ON);
 	
-	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(1),
+	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(2),
 			      "LDAP sdb zone '%s': ldapdb_bind(): Set option PROTOCOL_VERSION to '%d' and allow referrals.", zone, ver);
 #endif
 	
@@ -257,7 +262,7 @@ ldapdb_bind(const char *zone, struct ldapdb_data *data, LDAP **ldp) {
 #ifdef LDAPDB_TLS
 	if (data->tls) {
 	  ldap_start_tls_s(*ldp, NULL, NULL);
-	  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(1),
+	  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(2),
 					"LDAP sdb zone '%s': ldapdb_bind(): Started TLS", zone);
 	}
 #endif
@@ -278,7 +283,7 @@ ldapdb_bind(const char *zone, struct ldapdb_data *data, LDAP **ldp) {
 	  sleep(5);
 	  counter++;
 	} else {
-	  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(1),
+	  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_CONTROL, ISC_LOG_DEBUG(2),
 					"LDAP sdb zone '%s': ldapdb_bind(): Bound to ldapserver as '%s'", zone, data->bindname);
 	  failure = 0;
 	}
@@ -541,9 +546,9 @@ static int parseextensions(char *extensions, struct ldapdb_data *data) {
 		return -1;
 	  
 	  if (!strcasecmp(name, "bindname"))
-		data->bindname = isc_mem_get(ns_g_mctx, value);
+	    data->bindname = value;
 	  else if (!strcasecmp(name, "x-bindpw"))
-		data->bindpw = isc_mem_get(ns_g_mctx, value);
+	    data->bindpw = value;
 #ifdef LDAPDB_TLS
 	  else if (!strcasecmp(name, "x-tls"))
 		data->tls = value == NULL || !strcasecmp(value, "true");

@@ -2,9 +2,6 @@ Bind9 LDAP SDB Change Log
 
 bind9-ldap 1.1.1 TO BE ANNOUNCED
 	Bug fixes
-	  - Call isc_mem_get() to allocate memory before we assign a value
-	    to the bind{name,pw} variables. I've notice a memory thrashing,
-	    maybe this will help...
 	  - Fix zone2ldap.c:main() to work with later Bind9.
 	  - Update paths in the Makefile (reflect the fact that
 	    the LDAP sdb is in 'contrib/sdb/ldap' and not 'contrib/sdb').
@@ -24,6 +21,9 @@ bind9-ldap 1.1.1 TO BE ANNOUNCED
 	    easier to figure out which zone that it wasn't possible
 	    to bind for).
 	  - Add some debugging to easier see connects/binds etc.
+	    + Change existing debugging to use ISC_LOG_DEBUG(2) instead
+	      of 1...
+	    + Include LDAP URI in output of failed ldap_initialize().
 	  - Add SASL support to zone2ldap and ldap2zone (if compiled with
 	    the -DSECUREBIND_SASL flag).
 	    + Update Makefile and zone2ldap man page with additional
