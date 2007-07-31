@@ -1,7 +1,9 @@
-/* $Id: ldap2zone.c,v 1.2 2007-06-29 21:29:02 turbo Exp $ */
+/* $Id: ldap2zone.c,v 1.3 2007-07-31 13:28:33 turbo Exp $ */
 
 #include <sys/types.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
 
 #include <ldap.h>
 #include <errno.h>
@@ -31,6 +33,16 @@ struct assstack_entry {
     struct string val;
     struct assstack_entry *next;
 };
+
+struct assstack_entry *assstack_find(struct assstack_entry *stack, struct string *key);
+void assstack_push(struct assstack_entry **stack, struct assstack_entry *item);
+void assstack_insertbottom(struct assstack_entry **stack, struct assstack_entry *item);
+void printsoa(struct string *soa);
+void printrrs(char *defaultttl, struct assstack_entry *item);
+void print_zone(char *defaultttl, struct assstack_entry *stack);
+void usage(char *name);
+void err(char *name, const char *msg);
+int putrr(struct assstack_entry **stack, struct berval *name, char *type, char *ttl, struct berval *val);
 
 struct assstack_entry *assstack_find(struct assstack_entry *stack, struct string *key) {
     for (; stack; stack = stack->next)
@@ -62,7 +74,7 @@ void assstack_insertbottom(struct assstack_entry **stack, struct assstack_entry 
 
 void printsoa(struct string *soa) {
     char *s;
-    int i;
+    size_t i;
     
     s = (char *)soa->data;
     i = 0;
@@ -114,7 +126,7 @@ void printrrs(char *defaultttl, struct assstack_entry *item) {
     struct assstack_entry *stack;
     char *s;
     int first;
-    int i;
+    size_t i;
     char *ttl, *type;
     int top;
     
@@ -192,7 +204,7 @@ void usage(char *name) {
     exit(1);
 };
 
-void err(char *name, char *msg) {
+void err(char *name, const char *msg) {
     fprintf(stderr, "%s: %s\n", name, msg);
     exit(1);
 };

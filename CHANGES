@@ -35,3 +35,7 @@ bind9-ldap 1.1.1 TO BE ANNOUNCED
 	    zone2ldap.
 	  - Added the possibility to add OpenLDAPaci attribute(s) to
 	    objects created by zone2ldap.
+	  - Misc code changes in ldap2zone.c by Adam Tkac @ RedHat.
+	    + Shutup compiler warnings
+	    + Fix Compilation on 64bit systems - Implicitly declare
+	      malloc()-s caused segfaults.
