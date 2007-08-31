@@ -6,6 +6,36 @@ experimental features. For production I would recommend using 1.0 unless
 you really need the new features. I'm grateful though if you help test
 1.1.0 and give positive or negative feedback.
 
+1.1.1 (Not Yet Released) and later - see CHANGES file.
+To add the new 'dNSView' attribute, something like this can be written
+in the named.conf file (example courtesy Alex Bramley):
+
+	view "view1" {
+	  match-clients { acl-for-one; };
+	  zone "example.com" {
+	    type master;
+	    database "ldap ldap://127.0.0.1/<base>??sub?(|(dnsView=view1)(!(dnsView=*))) 86400";
+	  }
+	}
+
+To use the attribute in the LDAP object:
+
+	dn: relativeDomainName=host1/view1,zoneName=example.com,ou=dns,dc=example,dc=com
+	objectClass: dNSZone
+	relativeDomainName: host1
+	relativeDomainName: host1/view1
+	zoneName: example.com
+	dNSView: view1
+	aRecord: 192.168.1.1
+	
+	dn: relativeDomainName=host1/view2,zoneName=example.com,ou=dns,dc=example,dc=com
+	objectClass: dNSZone
+	relativeDomainName: host1
+	relativeDomainName: host1/view2
+	zoneName: example.com
+	dNSView: view2
+	aRecord: 192.168.2.1
+
 1.1.0 has support for specifying search scope and which attributes to
 request in the URL. With OpenLDAP libraries it also supports URLs with
 ldaps and ldapi schemes for SSL and UNIX domain sockets resp. See
