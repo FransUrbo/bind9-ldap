@@ -39,5 +39,6 @@ bind9-ldap 1.1.1 TO BE ANNOUNCED
 	    + Shutup compiler warnings
 	    + Fix Compilation on 64bit systems - Implicitly declare
 	      malloc()-s caused segfaults.
-	  - Added dNSView attribute to schema, as suggested by Alex Bramley.
+	  - Patch to allow wildcard domains by Jan-Piet Mens. See the
+	    README.wildcard for more information.
 

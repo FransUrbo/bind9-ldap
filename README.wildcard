@@ -1,0 +1,19 @@
+The way to use it is to add an LDAP entry with a relativeDomainName
+containing a tilde (~). That will be pulled if a search for `name'
+doesn't return a result. In other words, looking up host.x.com will
+first search for `relativeDomainName=host' and if that returns no
+results, a search for `relativeDomainName=~' will be performed.
+
+During AXFR, labels containing a tilde (~) are translated back to
+asterisk (*).
+
+
+This is an example LDIF on what this can look like:
+
+        dn: relativeDomainName=~,dc=domain,dc=tld
+        objectClass: dNSZone
+        relativeDomainName: ~
+        zoneName: domain.tld
+        dNSTTL: 1800
+        dNSClass: IN
+        cNAMERecord: host.domain.tld.

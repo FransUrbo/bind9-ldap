@@ -10,7 +10,7 @@
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  *
- * $Id: ldapdb.c,v 1.9 2007-07-02 20:06:16 turbo Exp $
+ * $Id: ldapdb.c,v 1.10 2007-11-05 11:09:33 turbo Exp $
  */
 
 /* If you want to use TLS and not OpenLDAP library, uncomment the define below */
@@ -326,6 +326,12 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 	fltr = data->filterone;
   }
   
+  /* debug when starting `named -g -d 1 ...' on console */
+  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER,
+				ISC_LOG_DEBUG(1), "base=%s, zone=[%s], name=[%s], filter=[%s]\n", 
+				(data->base) ? data->base : "<NULL>", (zone) ? zone : "<NULL>",
+				(name) ? name : "<NULL>", (fltr) ? fltr : "<NULL>");
+ 
   msgid = ldap_search(*ldp, data->base, data->scope, fltr, data->attrs, 0);
   if (msgid == -1) {
 	ldapdb_bind(zone, data, ldp);
@@ -393,6 +399,10 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 			result = dns_sdb_putrr(retdata, type, ttl, vals[i]);
 		  } else {
 			for (j = 0; names[j] != NULL; j++) {
+			  if (names[j][0] == '~') {
+ 			   	names[j][0] = '*';
+			  }
+ 
 			  result = dns_sdb_putnamedrr(retdata, names[j], type, ttl, vals[i]);
 			  if (result != ISC_R_SUCCESS)
 				break;
@@ -440,7 +450,38 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 static isc_result_t
 ldapdb_lookup(const char *zone, const char *name, void *dbdata,
 			  dns_sdblookup_t *lookup) {
-  return ldapdb_search(zone, name, dbdata, lookup);
+  isc_result_t result;
+  char *tname = strdup(name);
+
+  /* JPM */
+  /* if no result, attempt wildcard by searching for relativeDomainname=~
+   * (tilde) */
+  result = ldapdb_search(zone, name, dbdata, lookup);
+  if ((result != ISC_R_SUCCESS) &&
+	  (name != NULL) &&
+	  (strcmp(name, "@") != 0)) {
+		char *np;
+
+		/* break up `name' into labels and search for ~.label from left */
+		if ((np = strpbrk(name, ".")) == NULL)
+		  np = "";		/* empty label, but not null */
+
+		for (; np != NULL; np = strpbrk(np + 1, ".")) {
+		  sprintf(tname, "~%s", np);
+		  result = ldapdb_search(zone, tname, dbdata, lookup);
+		  if (result == ISC_R_SUCCESS) {
+			break;
+		  }
+		}
+
+		if (result != ISC_R_SUCCESS) {
+		  /* last try; wild at apex */
+		  result = ldapdb_search(zone, "~", dbdata, lookup);
+		}
+     }
+     
+     free(tname);
+     return (result);
 }
 
 static isc_result_t
