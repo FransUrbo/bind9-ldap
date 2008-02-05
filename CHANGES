@@ -1,4 +1,4 @@
-Bind9 LDAP SDB Change Log
+Bind9 LDAP SDB Change Log2
 
 bind9-ldap 1.1.1 TO BE ANNOUNCED
 	Bug fixes
@@ -7,6 +7,18 @@ bind9-ldap 1.1.1 TO BE ANNOUNCED
 	    the LDAP sdb is in 'contrib/sdb/ldap' and not 'contrib/sdb').
 	  - Fix object class generation (newer OpenLDAP is very picky
 	    about this) in zone2ldap.
+	  - Patch by Russell Mosemann
+	    + Added global constant character array WILDCARD_EXT for the
+	      "external" wildcard character that Bind expects.
+	    + Added global constant character array WILDCARD_INT for the
+	      "internal" wildcard character. It can be changed to whatever
+	      the user wants to use locally. The default was left at tilde (~).
+	    + Rewrote the steps in ldapdb_lookup
+	      + Search for wildcards _only_ if ldapdb_search returns
+		ISC_R_NOTFOUND..
+	      + Removed logic error of np pointing beyond empty string when
+		name is NULL, potentially pushing long strings of garbage to
+		ldap and/or crashing.
 
 	Additions/Misc changes
 	  - Include zone2ldap command

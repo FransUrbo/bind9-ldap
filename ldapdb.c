@@ -10,7 +10,7 @@
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  *
- * $Id: ldapdb.c,v 1.10 2007-11-05 11:09:33 turbo Exp $
+ * $Id: ldapdb.c,v 1.11 2008-02-05 19:44:24 turbo Exp $
  */
 
 /* If you want to use TLS and not OpenLDAP library, uncomment the define below */
@@ -59,6 +59,9 @@
 
 /* enough for name with 8 labels of max length */
 #define MAXNAMELEN 519
+
+const char *WILDCARD_EXT = "*"; /* External host wildcard character */
+const char *WILDCARD_INT = "~"; /* Internal wildcard, change to taste */
 
 #define LDAPDB_FAILURE(msg) { \
     isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, \
@@ -399,8 +402,8 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 			result = dns_sdb_putrr(retdata, type, ttl, vals[i]);
 		  } else {
 			for (j = 0; names[j] != NULL; j++) {
-			  if (names[j][0] == '~') {
- 			   	names[j][0] = '*';
+			  if (names[j][0] == WILDCARD_INT[0]) {
+ 			   	names[j][0] = WILDCARD_EXT[0];
 			  }
  
 			  result = dns_sdb_putnamedrr(retdata, names[j], type, ttl, vals[i]);
@@ -450,37 +453,22 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 static isc_result_t
 ldapdb_lookup(const char *zone, const char *name, void *dbdata,
 			  dns_sdblookup_t *lookup) {
-  isc_result_t result;
-  char *tname = strdup(name);
+  isc_result_t result;                      /* Result for bind */
+  const char *np = name;                    /* Point at parts of name */
+  char *srch_name = strdup(name);           /* Name for searching */
 
-  /* JPM */
-  /* if no result, attempt wildcard by searching for relativeDomainname=~
-   * (tilde) */
-  result = ldapdb_search(zone, name, dbdata, lookup);
-  if ((result != ISC_R_SUCCESS) &&
-	  (name != NULL) &&
-	  (strcmp(name, "@") != 0)) {
-		char *np;
-
-		/* break up `name' into labels and search for ~.label from left */
-		if ((np = strpbrk(name, ".")) == NULL)
-		  np = "";		/* empty label, but not null */
-
-		for (; np != NULL; np = strpbrk(np + 1, ".")) {
-		  sprintf(tname, "~%s", np);
-		  result = ldapdb_search(zone, tname, dbdata, lookup);
-		  if (result == ISC_R_SUCCESS) {
-			break;
-		  }
-		}
-
-		if (result != ISC_R_SUCCESS) {
-		  /* last try; wild at apex */
-		  result = ldapdb_search(zone, "~", dbdata, lookup);
-		}
+  /* search for original name and then break name into labels and search
+     for WILDCARD.label from the left
+  */
+  while (((result = ldapdb_search(zone, srch_name, dbdata, lookup)) ==
+           ISC_R_NOTFOUND) &&
+          (np != NULL) && strcmp(name, "@"))
+  {
+      np = strpbrk(np + 1, ".");
+      sprintf(srch_name, "%s%s", WILDCARD_INT, np);
      }
      
-     free(tname);
+  free(srch_name);
      return (result);
 }
 
