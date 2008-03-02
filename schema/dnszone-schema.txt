@@ -1,6 +1,6 @@
 # A schema for storing DNS zones in LDAP
 #
-# $Id: dnszone-schema.txt,v 1.3 2008-02-16 12:12:35 turbo Exp $
+# $Id: dnszone-schema.txt,v 1.1 2008-03-02 17:57:07 turbo Exp $
 attributetype ( 1.3.6.1.4.1.2428.20.0.0  NAME 'dNSTTL'
 	DESC 'An integer denoting time to live'
 	EQUALITY integerMatch
