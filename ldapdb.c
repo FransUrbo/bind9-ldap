@@ -10,7 +10,7 @@
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  *
- * $Id: ldapdb.c,v 1.11 2008-02-05 19:44:24 turbo Exp $
+ * $Id: ldapdb.c,v 1.12 2008-03-14 17:24:05 turbo Exp $
  */
 
 /* If you want to use TLS and not OpenLDAP library, uncomment the define below */
@@ -311,27 +311,29 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
   ldp = ldapdb_getconn(data);
   if (ldp == NULL)
 	return (ISC_R_FAILURE);
+
   if (*ldp == NULL) {
 	ldapdb_bind(zone, data, ldp);
 	if (*ldp == NULL)
 	  LDAPDB_FAILURE("bind failed");
   }
   
-  if (name == NULL) {
+  if (name == NULL)
 	fltr = data->filterall;
-  } else {
+  else {
 	if (strlen(name) > MAXNAMELEN) {
 	  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
 					"LDAP sdb zone '%s': name %s too long", zone, name);
 	  return (ISC_R_FAILURE);
 	}
+
 	sprintf(data->filtername, "%s))", name);
 	fltr = data->filterone;
   }
   
   /* debug when starting `named -g -d 1 ...' on console */
   isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER,
-				ISC_LOG_DEBUG(1), "base=%s, zone=[%s], name=[%s], filter=[%s]\n", 
+				ISC_LOG_DEBUG(1), "base='%s', zone='%s', name='%s', filter='%s'",
 				(data->base) ? data->base : "<NULL>", (zone) ? zone : "<NULL>",
 				(name) ? name : "<NULL>", (fltr) ? fltr : "<NULL>");
  
@@ -343,8 +345,9 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
   }
   
   if (*ldp == NULL || msgid == -1) {
-	isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,	
-			      "LDAP sdb zone '%s': search failed, filter %s", zone, fltr);
+	if(name != NULL)
+	  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,	
+			        "LDAP sdb zone '%s': search failed, filter %s", zone, fltr);
 	return (ISC_R_FAILURE);
   }
   
@@ -395,13 +398,26 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 	  
 	  strncpy(type, a, s - a);
 	  type[s - a] = '\0';
+
+	  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_DEBUG(3),
+		"Retreiving values for attribute '%s' with ldap_get_values()", a);
+
 	  vals = ldap_get_values(ld, e, a);
 	  if (vals != NULL) {
 		for (i = 0; vals[i] != NULL; i++) {
+		  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_DEBUG(3),
+			"vals[%d]: %s", i, vals[i]);
+
 		  if (name != NULL) {
+			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_DEBUG(3),
+			  "name: %s (%s)", name, vals[i]);
+
 			result = dns_sdb_putrr(retdata, type, ttl, vals[i]);
 		  } else {
 			for (j = 0; names[j] != NULL; j++) {
+			  isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER,	ISC_LOG_DEBUG(3),
+				"names[%d]: %s (%s)", j, names[j], vals[i]);
+
 			  if (names[j][0] == WILDCARD_INT[0]) {
  			   	names[j][0] = WILDCARD_EXT[0];
 			  }
@@ -411,19 +427,12 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 				break;
 			}
 		  }
+
 		  if (result != ISC_R_SUCCESS) {
-			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,	
-						  "LDAP sdb zone '%s': dns_sdb_put... failed for %s", zone, vals[i]);
-			ldap_value_free(vals);
-#ifndef LDAPDB_RFC1823API
-			ldap_memfree(a);
-			if (ptr != NULL)
-			  ber_free(ptr, 0);
-#endif
-			if (name == NULL)
-			  ldap_value_free(names);
-			ldap_msgfree(res);
-			return (ISC_R_FAILURE);
+			isc_log_write(ns_g_lctx, NS_LOGCATEGORY_GENERAL, NS_LOGMODULE_SERVER, ISC_LOG_ERROR,
+						  "LDAP sdb zone '%s': dns_sdb_put... failed for '%s'", zone, vals[i]);
+
+			break;
 		  }
 		}
 		ldap_value_free(vals);
@@ -432,10 +441,12 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 	  ldap_memfree(a);
 #endif
 	}
+
 #ifndef LDAPDB_RFC1823API
 	if (ptr != NULL)
 	  ber_free(ptr, 0);
 #endif
+
 	if (name == NULL)
 	  ldap_value_free(names);
 	
@@ -445,6 +456,7 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
   
   /* free final result */
   ldap_msgfree(res);
+
   return (result);
 }
 
