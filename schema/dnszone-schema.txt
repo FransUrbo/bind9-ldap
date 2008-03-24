@@ -1,6 +1,6 @@
 # A schema for storing DNS zones in LDAP
 #
-# $Id: dnszone-schema.txt,v 1.1 2008-03-02 17:57:07 turbo Exp $
+# $Id: dnszone-schema.txt,v 1.2 2008-03-24 21:29:27 norbert Exp $
 attributetype ( 1.3.6.1.4.1.2428.20.0.0  NAME 'dNSTTL'
 	DESC 'An integer denoting time to live'
 	EQUALITY integerMatch
@@ -28,6 +28,12 @@ attributetype ( 1.3.6.1.4.1.2428.20.0.4 NAME 'dNSView'
 	EQUALITY caseIgnoreIA5Match
 	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
 
+attributetype ( 1.3.6.1.4.1.2428.20.1.11 NAME 'wKSRecord'
+	DESC 'a well known service description, RFC 1035'
+	EQUALITY caseIgnoreIA5Match
+	SUBSTR caseIgnoreIA5SubstringsMatch
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
+
 attributetype ( 1.3.6.1.4.1.2428.20.1.12 NAME 'pTRRecord'
 	DESC 'domain name pointer, RFC 1035'
 	EQUALITY caseIgnoreIA5Match
@@ -52,6 +58,12 @@ attributetype ( 1.3.6.1.4.1.2428.20.1.16 NAME 'tXTRecord'
 	SUBSTR caseIgnoreIA5SubstringsMatch
 	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
 
+attributetype ( 1.3.6.1.4.1.2428.20.1.17 NAME 'rPRecord'
+	DESC 'for Responsible Person, RFC 1183'
+	EQUALITY caseIgnoreIA5Match
+	SUBSTR caseIgnoreIA5SubstringsMatch
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
+
 attributetype ( 1.3.6.1.4.1.2428.20.1.18 NAME 'aFSDBRecord'
 	DESC 'for AFS Data Base location, RFC 1183'
 	EQUALITY caseIgnoreIA5Match
@@ -66,6 +78,12 @@ attributetype ( 1.3.6.1.4.1.2428.20.1.24 NAME 'SigRecord'
 
 attributetype ( 1.3.6.1.4.1.2428.20.1.25 NAME 'KeyRecord'
 	DESC 'Key, RFC 2535'
+	EQUALITY caseIgnoreIA5Match
+	SUBSTR caseIgnoreIA5SubstringsMatch
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
+
+attributetype ( 1.3.6.1.4.1.2428.20.1.27 NAME 'gPosRecord'
+	DESC 'Geographical Position, RFC 1712'
 	EQUALITY caseIgnoreIA5Match
 	SUBSTR caseIgnoreIA5SubstringsMatch
 	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
@@ -124,6 +142,12 @@ attributetype ( 1.3.6.1.4.1.2428.20.1.39 NAME 'dNameRecord'
 	SUBSTR caseIgnoreIA5SubstringsMatch
 	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
 
+attributetype ( 1.3.6.1.4.1.2428.20.1.42 NAME 'aPLRecord'
+	DESC 'Lists of Address Prefixes, RFC 3123'
+	EQUALITY caseIgnoreIA5Match
+	SUBSTR caseIgnoreIA5SubstringsMatch
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
+
 attributetype ( 1.3.6.1.4.1.2428.20.1.43 NAME 'dSRecord'
 	DESC 'Delegation Signer, RFC 3658'
 	EQUALITY caseIgnoreIA5Match
@@ -131,7 +155,13 @@ attributetype ( 1.3.6.1.4.1.2428.20.1.43 NAME 'dSRecord'
 	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
 
 attributetype ( 1.3.6.1.4.1.2428.20.1.44 NAME 'sSHFPRecord'
-	DESC 'SSH Key Fingerprint, draft-ietf-secsh-dns-05.txt'
+	DESC 'SSH Key Fingerprint, RFC 4255'
+	EQUALITY caseIgnoreIA5Match
+	SUBSTR caseIgnoreIA5SubstringsMatch
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
+
+attributetype ( 1.3.6.1.4.1.2428.20.1.45 NAME 'iPSecKeyRecord'
+	DESC 'SSH Key Fingerprint, RFC 4025'
 	EQUALITY caseIgnoreIA5Match
 	SUBSTR caseIgnoreIA5SubstringsMatch
 	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
@@ -148,14 +178,35 @@ attributetype ( 1.3.6.1.4.1.2428.20.1.47 NAME 'nSECRecord'
 	SUBSTR caseIgnoreIA5SubstringsMatch
 	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
 
+attributetype ( 1.3.6.1.4.1.2428.20.1.48 NAME 'dNSKeyRecord'
+	DESC 'DNSKEY, RFC 3755'
+	EQUALITY caseIgnoreIA5Match
+	SUBSTR caseIgnoreIA5SubstringsMatch
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
+
+attributetype ( 1.3.6.1.4.1.2428.20.1.49 NAME 'dHCIDRecord'
+	DESC 'DHCID, RFC 4701'
+	EQUALITY caseIgnoreIA5Match
+	SUBSTR caseIgnoreIA5SubstringsMatch
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
+
+attributetype ( 1.3.6.1.4.1.2428.20.1.99 NAME 'sPFRecord'
+	DESC 'Sender Policy Framework, RFC 4408'
+	EQUALITY caseIgnoreIA5Match
+	SUBSTR caseIgnoreIA5SubstringsMatch
+	SYNTAX 1.3.6.1.4.1.1466.115.121.1.26 )
+
 objectclass ( 1.3.6.1.4.1.2428.20.3 NAME 'dNSZone'
-        SUP top STRUCTURAL
+	SUP top STRUCTURAL
 	MUST ( zoneName $ relativeDomainName )
-        MAY ( DNSTTL $ DNSClass $
-              ARecord $ MDRecord $ MXRecord $ NSRecord $
-	      SOARecord $ CNAMERecord $ PTRRecord $ HINFORecord $
-              MINFORecord $ TXTRecord $ AFSDBRecord $ SIGRecord $
-              KEYRecord $ AAAARecord $ LOCRecord $ NXTRecord $
-              SRVRecord $ NAPTRRecord $ KXRecord $ CERTRecord $
-              A6Record $ DNAMERecord $ DSRecord $ SSHFPRecord $
-              RRSIGRecord $ NSECRecord $ dNSView ) )
+	MAY ( DNSTTL $ DNSClass $
+		ARecord $ MDRecord $ MXRecord $ NSRecord $
+		SOARecord $ CNAMERecord $ WKSRecord $ PTRRecord $
+		HINFORecord $ MINFORecord $ TXTRecord $ RPRecord $
+		AFSDBRecord $ SIGRecord $ KEYRecord $ GPOSRecord $
+		AAAARecord $ LOCRecord $ NXTRecord $ SRVRecord $
+		NAPTRRecord $ KXRecord $ CERTRecord $ A6Record $
+		DNAMERecord $ APLRecord $ DSRecord $ SSHFPRecord $
+		IPSECKEYRecord $ RRSIGRecord $ NSECRecord $
+		DNSKEYRecord $ DHCIDRecord $ SPFRecord $ dNSView
+) )
