@@ -1,6 +1,6 @@
 # A schema for storing DNS zones in LDAP
 #
-# $Id: dnszone-schema.txt,v 1.2 2008-03-24 21:29:27 norbert Exp $
+# $Id: dnszone-schema.txt,v 1.3 2008-04-06 11:47:55 norbert Exp $
 attributetype ( 1.3.6.1.4.1.2428.20.0.0  NAME 'dNSTTL'
 	DESC 'An integer denoting time to live'
 	EQUALITY integerMatch
@@ -209,4 +209,4 @@ objectclass ( 1.3.6.1.4.1.2428.20.3 NAME 'dNSZone'
 		DNAMERecord $ APLRecord $ DSRecord $ SSHFPRecord $
 		IPSECKEYRecord $ RRSIGRecord $ NSECRecord $
 		DNSKEYRecord $ DHCIDRecord $ SPFRecord $ dNSView
-) )
+	) )
