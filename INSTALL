@@ -1,5 +1,5 @@
 This is the INSTALL file for 1.1.0. See
-http://www.venaas.no/ldap/bind-sdb/ for updates or other information.
+http://bind9-ldap.bayour.com/ for updates or other information.
 
 BUILDING
 
@@ -33,9 +33,8 @@ the line "#define LDAPDB_LDAP_VERSION 3" in ldapdb.c. Simply
 replace 3 with 2. Instead of editing the file, you may define
 LDAPDB_LDAP_VERSION yourself.
 
-If you want to use TLS and are not using OpenLDAP libraries, you
-will need to uncomment the #define LDAPDB_TLS" line near the top of
-ldapdb.c.
+If you want to use TLS, you need to uncommed the #define LDAPDB_TLS"
+line near the top of ldapdb.c.
 
 CONFIGURING
 
@@ -56,6 +55,11 @@ zone "venaas.com" {
         type master;
         database "ldap ldap://158.38.160.245/dc=venaas,dc=com,o=DNS,dc=venaas,dc=no 172800";
 };
+
+The database line for the LDAP SDB is constructed like this:
+
+  ldap://<IP_OR_HOST>/<BASEDN>?<ATTRIBUTES>?<SCOPE>?<FILTER>?<OPTIONS> <DEFAULT_TTL>
+
 
 When doing lookups BIND will do a sub-tree search below the base in the
 URL. The number 172800 is the TTL which will be used for all entries that
@@ -94,4 +98,6 @@ Finally, if you enabled TLS when compiling, you can also use TLS if
 you like. To do this you use the extension "x-tls", e.g.
 ldap://158.38.160.245/dc=venaas,dc=com,o=DNS,dc=venaas,dc=no????!bindname=cn=Manager%2cdc=venaas%2cdc=no,!x-bindpw=secret,x-tls
 
-Stig Venaas <venaas@uninett.no> 2005-05-01
+
+Stig Venaas <venaas@uninett.no> 2004-08-15
+Turbo Fredriksson <turbo@bayour.com> 2008-07-19
