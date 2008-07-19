@@ -17,3 +17,14 @@ This is an example LDIF on what this can look like:
         dNSTTL: 1800
         dNSClass: IN
         cNAMERecord: host.domain.tld.
+
+
+To enable this functionality, you will have to put a special option
+in the database configuration line in the named.conf file like this:
+
+	zone "example.com" {
+	  type master;
+	  database "ldap ldap://127.0.0.1/dc=com????!x-wildcard=true 172800";
+	}
+
+Turbo Fredriksson <turbo@bayour.com> 2008-07-19
