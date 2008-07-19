@@ -10,7 +10,7 @@
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  *
- * $Id: ldapdb.c,v 1.12 2008-03-14 17:24:05 turbo Exp $
+ * $Id: ldapdb.c,v 1.13 2008-07-19 11:21:37 turbo Exp $
  */
 
 /* If you want to use TLS and not OpenLDAP library, uncomment the define below */
@@ -86,6 +86,7 @@ struct ldapdb_data {
   char *bindname;
   char *bindpw;
   int tls;
+  int wildcard;
 };
 
 /* used by ldapdb_getconn */
@@ -465,23 +466,29 @@ ldapdb_search(const char *zone, const char *name, void *dbdata, void *retdata) {
 static isc_result_t
 ldapdb_lookup(const char *zone, const char *name, void *dbdata,
 			  dns_sdblookup_t *lookup) {
+  struct ldapdb_data *data = dbdata;
   isc_result_t result;                      /* Result for bind */
   const char *np = name;                    /* Point at parts of name */
   char *srch_name = strdup(name);           /* Name for searching */
 
-  /* search for original name and then break name into labels and search
-     for WILDCARD.label from the left
-  */
-  while (((result = ldapdb_search(zone, srch_name, dbdata, lookup)) ==
-           ISC_R_NOTFOUND) &&
-          (np != NULL) && strcmp(name, "@"))
+  /* search for original name */
+  if ((result = ldapdb_search(zone, name, dbdata, lookup)) == ISC_R_NOTFOUND
+      && strcmp(name, "@") && data->wildcard) 
   {
-      np = strpbrk(np + 1, ".");
+   /* if full name not found,  and wildcard searches enabled,
+    * break name into labels and search for WILDCARD.label from the left */
+    while ((result == ISC_R_NOTFOUND) && ((np = strpbrk(np + 1, ".")) != NULL))
+    {
       sprintf(srch_name, "%s%s", WILDCARD_INT, np);
-     }
-     
+      result = ldapdb_search(zone, srch_name, dbdata, lookup); 
+    }
+    /* the above loop won't search for the wildcard on it's own as
+     * the relativeDomainName, so we should check that too... */
+    if (result == ISC_R_NOTFOUND)
+      result = ldapdb_search(zone, WILDCARD_INT, dbdata, lookup);
+  }
   free(srch_name);
-     return (result);
+  return (result);
 }
 
 static isc_result_t
@@ -590,6 +597,8 @@ static int parseextensions(char *extensions, struct ldapdb_data *data) {
 	    data->bindname = value;
 	  else if (!strcasecmp(name, "x-bindpw"))
 	    data->bindpw = value;
+	  else if (!strcasecmp(name, "x-wildcard"))
+	    data->wildcard = value == NULL || !strcasecmp(value, "true");
 #ifdef LDAPDB_TLS
 	  else if (!strcasecmp(name, "x-tls"))
 		data->tls = value == NULL || !strcasecmp(value, "true");
