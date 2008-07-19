@@ -53,4 +53,6 @@ bind9-ldap 1.1.1 TO BE ANNOUNCED
 	      malloc()-s caused segfaults.
 	  - Patch to allow wildcard domains by Jan-Piet Mens. See the
 	    README.wildcard for more information.
-
+	  - Changes and bugfixes to the wildcard domains. Patch by Alex Bramley.
+	    Now require the 'x-wildcard' option. See README.wildcard for
+	    more information.
