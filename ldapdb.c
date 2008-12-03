@@ -10,7 +10,7 @@
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  *
- * $Id: ldapdb.c,v 1.13 2008-07-19 11:21:37 turbo Exp $
+ * $Id: ldapdb.c,v 1.14 2008-12-03 20:54:25 turbo Exp $
  */
 
 /* If you want to use TLS and not OpenLDAP library, uncomment the define below */
@@ -167,11 +167,11 @@ ldapdb_getconn(struct ldapdb_data *data)
 	/* no data for this thread, create empty connection list */
 	threaddata = malloc(sizeof(*threaddata));
 	if (threaddata == NULL)
-	  return (NULL);
+	  return (ISC_R_NOMEMORY);
 	threaddata->index = malloc(sizeof(threadid));
 	if (threaddata->index == NULL) {
 	  free(threaddata);
-	  return (NULL);
+	  return (ISC_R_NOMEMORY);
 	}
 	*(unsigned long *)threaddata->index = threadid;
 	threaddata->size = sizeof(threadid);
@@ -191,7 +191,7 @@ ldapdb_getconn(struct ldapdb_data *data)
 	/* no connection data structure for this server, create one */
 	conndata = malloc(sizeof(*conndata));
 	if (conndata == NULL)
-	  return (NULL);
+	  return (ISC_R_NOMEMORY);
 	conndata->index = data->url;
 	conndata->size = strlen(data->url);
 	conndata->data = NULL;
@@ -528,7 +528,7 @@ static char **parseattrs(char *a) {
   /* two more than # of commas, need room for NULL terminator */
   attrs = malloc(sizeof(char *) * (i + 2));
   if (!attrs)
-	return (NULL);
+	return (ISC_R_NOMEMORY);
   
   for (i = 0, s = a; ; i++) {
 	attrs[i] = s;
@@ -657,13 +657,16 @@ ldapdb_create(const char *zone, int argc, char **argv,
   data = isc_mem_get(ns_g_mctx, sizeof(struct ldapdb_data));
   if (data == NULL)
 	return (ISC_R_NOMEMORY);
-  
   memset(data, 0, sizeof(struct ldapdb_data));
-  data->url = argv[0];
+
+  /* Save data so it doesn't get overwritten - fix reload/restart problems. */
+  data->url = isc_mem_get(ns_g_mctx, strlen(argv[0] + 1);
+  strcpy(data->url, argv[0]);
+
   data->defaultttl = defaultttl;
   
   /* we know data->url starts with "ldap://", "ldaps://" or "ldapi://" */
-  hostport = argv[0] + strlen(strstr(argv[0], "ldap://") ? "ldap://" : "ldap.://");
+  hostport = data->url + strlen(strstr(data->url, "ldap://") ? "ldap://" : "ldap.://");
   
   s = strchr(hostport, '/');
   if (s) {
