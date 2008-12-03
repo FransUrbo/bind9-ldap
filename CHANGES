@@ -19,6 +19,8 @@ bind9-ldap 1.1.1 TO BE ANNOUNCED
 	      + Removed logic error of np pointing beyond empty string when
 		name is NULL, potentially pushing long strings of garbage to
 		ldap and/or crashing.
+	  - Return ISC_R_NOMEMORY if malloc() didn't work.
+	  - Save argv[0] as soon as possible - fix reload/restart problems.
 
 	Additions/Misc changes
 	  - Include zone2ldap command
