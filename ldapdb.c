@@ -10,7 +10,7 @@
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  *
- * $Id: ldapdb.c,v 1.14 2008-12-03 20:54:25 turbo Exp $
+ * $Id: ldapdb.c,v 1.15 2008-12-05 18:09:54 turbo Exp $
  */
 
 /* If you want to use TLS and not OpenLDAP library, uncomment the define below */
@@ -660,7 +660,7 @@ ldapdb_create(const char *zone, int argc, char **argv,
   memset(data, 0, sizeof(struct ldapdb_data));
 
   /* Save data so it doesn't get overwritten - fix reload/restart problems. */
-  data->url = isc_mem_get(ns_g_mctx, strlen(argv[0] + 1);
+  data->url = isc_mem_get(ns_g_mctx, strlen(argv[0]) + 1);
   strcpy(data->url, argv[0]);
 
   data->defaultttl = defaultttl;
