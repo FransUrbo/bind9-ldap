@@ -1,4 +1,4 @@
-/* $Id: ldap2zone.c,v 1.3 2007-07-31 13:28:33 turbo Exp $ */
+/* $Id: ldap2zone.c,v 1.4 2010-06-08 11:45:11 turbo Exp $ */
 
 #include <sys/types.h>
 #include <stdio.h>
@@ -521,7 +521,7 @@ int main(int argc, char **argv) {
 #endif
     /* ---------------- */
 
-    if (argc == 5) {
+    if (argc >= 5) {
 	/* serial number specified, check if different from one in SOA */
 	fltr = (char *)malloc(strlen(zonename) + strlen("(&(relativeDomainName=@)(zoneName=))") + 1);
 	sprintf(fltr, "(&(relativeDomainName=@)(zoneName=%s))", zonename);
