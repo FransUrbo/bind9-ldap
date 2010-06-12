@@ -1,4 +1,4 @@
-/* $Id: ldap2zone.c,v 1.4 2010-06-08 11:45:11 turbo Exp $ */
+/* $Id: ldap2zone.c,v 1.5 2010-06-12 20:16:19 turbo Exp $ */
 
 #include <sys/types.h>
 #include <stdio.h>
@@ -9,7 +9,7 @@
 #include <errno.h>
 #include <getopt.h>
 
-#define VERSION    "0.1/TF.1"
+#define VERSION    "0.1/TF.3"
 
 //#define SEARCH_DEBUG 1
 //#define CONNECT_DEBUG 1
@@ -286,7 +286,7 @@ int main(int argc, char **argv) {
     struct berval **vals, **names;
     char type[64];
     BerElement *ptr;
-    int i, j, rc, msgid, topt;
+    int i, j, rc, msgid, topt, bound = 0;
     struct assstack_entry *zone = NULL;
     extern char *optarg;
     char *binddn = NULL, *bindpw = NULL;
@@ -519,9 +519,10 @@ int main(int argc, char **argv) {
 #ifdef SECUREBIND_SASL
     }
 #endif
+    bound = 1;
     /* ---------------- */
 
-    if (argc >= 5) {
+    if (serialno) {
 	/* serial number specified, check if different from one in SOA */
 	fltr = (char *)malloc(strlen(zonename) + strlen("(&(relativeDomainName=@)(zoneName=))") + 1);
 	sprintf(fltr, "(&(relativeDomainName=@)(zoneName=%s))", zonename);
@@ -529,18 +530,23 @@ int main(int argc, char **argv) {
 	fprintf(stderr, "ldap_search(ld, '%s', 'sub', '%s', NULL, 0)\n", base, fltr);
 #endif
 	msgid = ldap_search(ld, base, LDAP_SCOPE_SUBTREE, fltr, NULL, 0);
-	if (msgid == -1)
-	    err(argv[0], "ldap_search() failed");
+	if (msgid == -1) {
+	  if(bound) ldap_unbind_s(ld);
+	  err(argv[0], "ldap_search() failed");
+	}
 
 	while ((rc = ldap_result(ld, msgid, 0, NULL, &res)) != LDAP_RES_SEARCH_RESULT ) {
 	    /* not supporting continuation references at present */
-	    if (rc != LDAP_RES_SEARCH_ENTRY)
+	    if (rc != LDAP_RES_SEARCH_ENTRY) {
+	      if(bound) ldap_unbind_s(ld);
 		err(argv[0], "ldap_result() returned cont.ref? Exiting");
+	    }
 
 	    /* only one entry per result message */
 	    e = ldap_first_entry(ld, res);
 	    if (e == NULL) {
 		ldap_msgfree(res);
+		if(bound) ldap_unbind_s(ld);
 		err(argv[0], "ldap_first_entry() failed");
 	    }
 	
@@ -551,7 +557,8 @@ int main(int argc, char **argv) {
 
 	ldap_msgfree(res);
 	if (!soavals) {
-		err(argv[0], "No SOA Record found");
+	  if(bound) ldap_unbind_s(ld);
+	  err(argv[0], "No SOA Record found");
 	}
 	
 	/* We have a SOA, compare serial numbers */
@@ -565,32 +572,42 @@ int main(int argc, char **argv) {
 	*s = '\0';
 	if (!strcmp(serial, serialno)) {
 	    ldap_value_free(soavals);
+	    if(bound) ldap_unbind_s(ld);
 	    err(argv[0], "serial numbers match");
 	}
+
 	ldap_value_free(soavals);
     }
 
     if (!fltr)
 	fltr = (char *)malloc(strlen(zonename) + strlen("(zoneName=)") + 1);
-    if (!fltr)
+    if (!fltr) {
+	if(bound) ldap_unbind_s(ld);
 	err(argv[0], "Malloc failed");
+    }
+
     sprintf(fltr, "(zoneName=%s)", zonename);
 #ifdef SEARCH_DEBUG
     fprintf(stderr, "ldap_search(ld, '%s', 'sub', '%s', NULL, 0)\n", base, fltr);
 #endif
 
     msgid = ldap_search(ld, base, LDAP_SCOPE_SUBTREE, fltr, NULL, 0);
-    if (msgid == -1)
+    if (msgid == -1) {
+	if(bound) ldap_unbind_s(ld);
 	err(argv[0], "ldap_search() failed");
+    }
 
     while ((rc = ldap_result(ld, msgid, 0, NULL, &res)) != LDAP_RES_SEARCH_RESULT ) {
 	/* not supporting continuation references at present */
-	if (rc != LDAP_RES_SEARCH_ENTRY)
+	if (rc != LDAP_RES_SEARCH_ENTRY) {
+	    if(bound) ldap_unbind_s(ld);
 	    err(argv[0], "ldap_result() returned cont.ref? Exiting");
+	}
 
 	/* only one entry per result message */
 	e = ldap_first_entry(ld, res);
 	if (e == NULL) {
+	    if(bound) ldap_unbind_s(ld);
 	    ldap_msgfree(res);
 	    err(argv[0], "ldap_first_entry() failed");
 	}
@@ -639,6 +656,8 @@ int main(int argc, char **argv) {
     ldap_msgfree(res);
 
     print_zone(defaultttl, zone);
+
+    if(bound) ldap_unbind_s(ld);
     return 0;
 }
 
