@@ -10,7 +10,7 @@
  *
  * Contributors: Jeremy C. McDermond, Turbo Fredriksson
  *
- * $Id: ldapdb.c,v 1.15 2008-12-05 18:09:54 turbo Exp $
+ * $Id: ldapdb.c,v 1.16 2011-09-22 17:00:21 turbo Exp $
  */
 
 /* If you want to use TLS and not OpenLDAP library, uncomment the define below */
@@ -192,7 +192,7 @@ ldapdb_getconn(struct ldapdb_data *data)
 	conndata = malloc(sizeof(*conndata));
 	if (conndata == NULL)
 	  return (ISC_R_NOMEMORY);
-	conndata->index = data->url;
+	conndata->index = strdup(data->url);
 	conndata->size = strlen(data->url);
 	conndata->data = NULL;
 	ldapdb_insert((struct ldapdb_entry **)&threaddata->data, conndata);
