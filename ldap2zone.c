@@ -56,7 +56,7 @@ void assstack_push(struct assstack_entry **stack, struct assstack_entry *item) {
     *stack = item;
 }
 
-void assstack_insertbottom(struct assstack_entry **stack, struct assstack_entry *item) {
+void assstack_insertsorted(struct assstack_entry **stack, struct assstack_entry *item) {
     struct assstack_entry *p;
     
     item->next = NULL;
@@ -64,11 +64,17 @@ void assstack_insertbottom(struct assstack_entry **stack, struct assstack_entry 
 	*stack = item;
 	return;
     }
-    /* find end, should keep track of end somewhere */
-    /* really a queue, not a stack */
+    /* find right place to insert the entry, keeping list sorted with @
+       at the start. */
     p = *stack;
-    while (p->next)
+    while (p->next &&
+	   0 > strncmp((char*)p->next->key.data, (char*)item->key.data,
+		       ( p->next->key.len > item->key.len ?
+			 item->key.len : p->key.len) ) ) {
 	p = p->next;
+    }
+
+    item->next = p->next;
     p->next = item;
 }
 
@@ -239,7 +245,7 @@ int putrr(struct assstack_entry **stack, struct berval *name, char *type, char *
 	if (name->bv_len == 1 && *(char *)name->bv_val == '@')
 	    assstack_push(stack, rr);
 	else
-	    assstack_insertbottom(stack, rr);
+	    assstack_insertsorted(stack, rr);
     }
 
     rrdata = (struct assstack_entry *) malloc(sizeof(struct assstack_entry));
@@ -272,7 +278,7 @@ int putrr(struct assstack_entry **stack, struct berval *name, char *type, char *
     if (!strcmp(type, "SOA"))
 	assstack_push((struct assstack_entry **) &(rr->val.data), rrdata);
     else
-	assstack_insertbottom((struct assstack_entry **) &(rr->val.data), rrdata);
+	assstack_insertsorted((struct assstack_entry **) &(rr->val.data), rrdata);
     return 0;
 }
 
