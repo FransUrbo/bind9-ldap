@@ -248,7 +248,7 @@ int putrr(struct assstack_entry **stack, struct berval *name, char *type, char *
 	free(rr);
 	return -1;
     }
-    rrdata->key.len = strlen(type) + strlen(ttl) + 1;
+    rrdata->key.len = strlen(type) + strlen(ttl) + 2; /* null byte and space */
     rrdata->key.data = (void *) malloc(rrdata->key.len);
     if (!rrdata->key.data) {
 	free(rrdata);
